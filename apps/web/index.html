@@ -16,10 +16,13 @@
       <h1>女巫镇</h1>
       <p class="subtitle">SALEM 1692 · 4–12 人在线版</p>
       <div class="panel landing-panel">
-        <label class="field">
-          <span>你的昵称</span>
-          <input id="nameInput" maxlength="16" autocomplete="nickname" placeholder="例如：阿比盖尔" />
-        </label>
+        <div class="field">
+          <span id="nameLabel">你的昵称</span>
+          <div class="name-row">
+            <input id="nameInput" maxlength="16" autocomplete="nickname" placeholder="例如：阿比盖尔" aria-labelledby="nameLabel" />
+            <button id="openProfileLanding" class="btn ghost" type="button" aria-haspopup="dialog" aria-controls="profileModal">头像</button>
+          </div>
+        </div>
         <button id="createBtn" class="btn primary big">创建房间</button>
         <div class="or"><span>或加入朋友的房间</span></div>
         <div class="join-row">
@@ -96,7 +99,7 @@
           <div id="phaseText" class="phase-text">等待开局</div>
           <div id="centerHint" class="center-hint"></div>
         </div>
-        <div id="selfPanel" class="self-panel"></div>
+        <div id="selfPanel" class="self-panel" role="button" tabindex="0" title="编辑个人资料"></div>
         <div id="hand" class="hand" aria-label="手牌"></div>
         <div id="actionBar" class="action-bar"></div>
       </main>
@@ -191,6 +194,35 @@
         <div class="card-actions">
           <button id="powerConfirm" class="btn primary">确认</button>
           <button class="btn ghost" data-close-power>取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="profileModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-profile></div>
+      <div class="profile-panel" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+        <button id="profileClose" class="modal-close" type="button" data-close-profile aria-label="关闭个人资料">×</button>
+        <div class="card-copy">
+          <div class="card-kicker">PROFILE</div>
+          <h2 id="profileTitle">个人资料</h2>
+          <p class="muted small">改完点保存才会同步给房间里的人。</p>
+        </div>
+        <div class="profile-avatar-row">
+          <div id="profileAvatar" class="avatar avatar-xl" aria-hidden="true"></div>
+          <div class="profile-avatar-actions">
+            <button id="profilePick" class="btn small" type="button">选择图片</button>
+            <button id="profileRemove" class="btn small ghost" type="button">移除头像</button>
+            <input id="profileFile" type="file" accept="image/*" hidden />
+          </div>
+        </div>
+        <label class="field">
+          <span>昵称</span>
+          <input id="profileName" maxlength="16" autocomplete="nickname" />
+        </label>
+        <p id="profileHint" class="hint" role="status"></p>
+        <div class="card-actions">
+          <button id="profileSave" class="btn primary" type="button">保存</button>
+          <button class="btn ghost" type="button" data-close-profile>取消</button>
         </div>
       </div>
     </div>

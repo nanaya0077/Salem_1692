@@ -3,7 +3,7 @@
 // 这样配额失败、补传幂等这些容易出错的分支都能用 node --test 直接覆盖。
 // 浏览器里只负责把本地存储包一层传进来，页面脚本只管弹层与图像管线。
 
-import { AVATAR_TARGET_MIME_PREFIXES } from "./avatar-normalize.js";
+import { isTargetDataUrl } from "./avatar-normalize.js";
 
 /** 昵称沿用既有键。 */
 export const NAME_KEY = "salem.name";
@@ -17,7 +17,7 @@ export const NAME_MAX = 16;
 // 只认服务端白名单里的目标格式（WebP / JPEG）；PNG 是编码回落档，不落本地。
 function isAvatarDataUrl(value) {
   if (typeof value !== "string" || value.length === 0) return false;
-  return AVATAR_TARGET_MIME_PREFIXES.some((prefix) => value.startsWith(prefix));
+  return isTargetDataUrl(value);
 }
 /**
  * 昵称清洗：去控制字符与尖括号、trim、空则「玩家」、最多 16 字。
