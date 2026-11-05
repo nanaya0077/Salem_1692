@@ -1,8 +1,9 @@
-const VERSION = "salem-v1";
+const VERSION = "salem-v2";
 const SHELL = [
   "/",
   "/styles.css",
   "/app.js",
+  "/table-view.js",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -42,7 +43,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   const cacheable = url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") ||
-    ["/styles.css", "/app.js", "/manifest.webmanifest"].includes(url.pathname);
+    ["/styles.css", "/app.js", "/table-view.js", "/manifest.webmanifest"].includes(url.pathname);
   if (!cacheable) return;
 
   event.respondWith(

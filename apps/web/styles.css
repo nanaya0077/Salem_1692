@@ -162,6 +162,8 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .seat-card.selectable { border-color: rgba(241,203,122,.65); box-shadow: 0 0 0 2px rgba(216,169,76,.14); }
 .seat-card .avatar { width: 28px; height: 28px; font-size: 13px; margin-bottom: 6px; }
 .seat-card .seat-name { font-size: 12px; font-weight: 600; }
+.seat-role { margin-top: 3px; font-size: 10px; color: var(--gold); letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seat-card.dead .seat-role { color: var(--gold2); }
 .seat-meta { display: flex; justify-content: space-between; gap: 4px; font-size: 10px; color: var(--muted); margin-top: 5px; }
 .seat-meta b { color: var(--blood2); }
 .trial-dots { display: flex; gap: 3px; margin-top: 5px; flex-wrap: wrap; }

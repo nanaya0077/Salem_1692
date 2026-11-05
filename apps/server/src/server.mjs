@@ -770,7 +770,7 @@ function submitNight(room, seatId, payload) {
   if (room.game.constableId === seatId) {
     if (payload.hammerTargetId === null || payload.hammerTargetId === undefined) vote.hammerTargetId = null;
     else if (!Number.isInteger(payload.hammerTargetId) || !room.game.players[payload.hammerTargetId]?.alive) return sendError(seatOf(room, seatId)?.ws, "木槌目标无效", "bad-hammer");
-    else if (payload.hammerTargetId === seatId) return sendError(seatOf(room, seatId)?.ws, "治安官不能锤自己", "hammer-self");
+    else if (payload.hammerTargetId === seatId) return sendError(seatOf(room, seatId)?.ws, "警长不能锤自己", "hammer-self");
     else vote.hammerTargetId = payload.hammerTargetId;
   }
   if (payload.useWilliam) {

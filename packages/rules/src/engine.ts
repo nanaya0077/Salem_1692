@@ -737,7 +737,7 @@ function resolveNightInternal(state: GameState, choice: NightChoice, events: Gam
   night.hammerTargetId = choice.hammerTargetId ?? null;
   if (night.hammerTargetId !== null) {
     const hammer = state.players[night.hammerTargetId];
-    // hammerTargetId 是被木槌赦免的玩家；必须先有在任治安官。
+    // hammerTargetId 是被木槌赦免的玩家；必须先有在任警长。
     if (!hammer || !hammer.alive || state.constableId === null || night.hammerTargetId === state.constableId) {
       night.hammerTargetId = null;
     }

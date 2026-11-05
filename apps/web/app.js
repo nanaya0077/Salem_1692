@@ -1,3 +1,5 @@
+import { seatRoleView, trialLabel } from "./table-view.js";
+
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -46,8 +48,6 @@ const PHASE_LABEL = {
   over: "结束",
 };
 
-const TRIAL_LABEL = { witch: "女巫", constable: "治安官", townspeople: "平民" };
-
 function loadSession() {
   try {
     const raw = sessionStorage.getItem("salem.session");
@@ -78,9 +78,14 @@ function card(id) {
   return S.cards.get(id) ?? { id, name: id, color: "none", typeLabel: "", points: 0, text: "", image: "" };
 }
 
+/** 角色卡名：只认卡牌资源里的名字，没加载或没有角色就返回 null，交给调用方兜底。 */
+function roleCardName(id) {
+  if (!id || id === "none") return null;
+  return S.cards.get(id)?.name ?? null;
+}
+
 function roleName(id) {
-  if (!id || id === "none") return "无角色";
-  return card(id).name;
+  return roleCardName(id) ?? (id && id !== "none" ? id : "无角色");
 }
 
 function seatName(id) {
@@ -370,7 +375,7 @@ function trialChips(player, compact = false) {
   return trials.map((t) => {
     if (!t.revealed) return '<span class="trial-chip">?</span>';
     const kind = t.kind ?? "townspeople";
-    return '<span class="trial-chip revealed ' + (kind === "witch" ? "witch" : "") + '">' + (TRIAL_LABEL[kind] ?? kind) + "</span>";
+    return '<span class="trial-chip revealed ' + (kind === "witch" ? "witch" : "") + '">' + esc(trialLabel(kind)) + "</span>";
   }).join("");
 }
 
@@ -402,9 +407,11 @@ function renderGame() {
     if (player.alive === false) classes.push("dead");
     if (selectableSeat(player.id)) classes.push("selectable");
     if (p.currentPlayerId === player.id) classes.push("me");
+    const role = seatRoleView(player, roleCardName);
     return '<button class="' + classes.join(" ") + '" data-seat="' + player.id + '">' +
       avatarChip(player.id, player.name) +
       '<div class="seat-name">' + esc(player.name) + "</div>" +
+      '<div class="seat-role" title="' + esc(role.full) + '">' + esc(role.compact) + "</div>" +
       '<div class="seat-meta"><span>手牌 <b>' + player.handCount + "</b></span><span>指控 <b>" + player.accusations + "</b></span></div>" +
       '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? (t.kind === "witch" ? "witch" : t.kind === "constable" ? "constable" : "on") : "") + '"></span>').join("") + "</div>" +
       (miniCards(player) ? '<div class="mini-cards">' + miniCards(player) + "</div>" : "") +
@@ -624,7 +631,7 @@ function formatEvent(e) {
     case "cardNullified": return cn(e.cardId) + " 被莎拉·古德免疫，立刻丢弃。";
     case "accusationAdded": return n(e.targetId) + " 面前 +" + e.points + " 点（" + esc(card(e.cardId).name) + "），共 " + e.total + " 点。";
     case "accusationsDiscarded": return n(e.playerId) + " 弃掉 " + e.count + " 张指控。";
-    case "trialRevealed": return n(e.playerId) + " 翻开一张身份卡：" + (TRIAL_LABEL[e.kind] ?? e.kind) + "（" + esc(e.cause) + "）。";
+    case "trialRevealed": return n(e.playerId) + " 翻开一张身份卡：" + esc(trialLabel(e.kind)) + "（" + esc(e.cause) + "）。";
     case "playerDied": return '<span class="red">' + n(e.playerId) + " 死亡（" + esc(e.cause) + "）。</span>";
     case "handDiscarded": return n(e.playerId) + " 弃掉 " + e.count + " 张手牌。";
     case "handTransferred": return n(e.fromId) + " 的 " + e.count + " 张手牌交给 " + n(e.toId) + "。";
@@ -672,7 +679,7 @@ function renderNight() {
   }
   const roles = [];
   if (info.isWitch) roles.push("女巫：选择夜杀目标");
-  if (info.isConstable) roles.push("治安官：可用木槌赦免一人");
+  if (info.isConstable) roles.push("警长：可用木槌赦免一人");
   if (!roles.length) roles.push("你不是夜晚行动者");
   $("nightPrompt").textContent = roles.join("；") + "。";
 
