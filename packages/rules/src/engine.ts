@@ -89,6 +89,7 @@ export function cloneState(state: GameState): GameState {
     config: { ...state.config },
     players: state.players.map((p) => ({
       ...p,
+      roleOptions: p.roleOptions.slice(),
       hand: p.hand.slice(),
       accusations: p.accusations.slice(),
       blue: p.blue.slice(),
@@ -108,6 +109,22 @@ export function cloneState(state: GameState): GameState {
     rngState: state.rngState,
     log: state.log.slice(),
   };
+}
+
+export function chooseRole(state: GameState, playerId: number, roleId: RoleId): ActionResult {
+  if (state.phase !== "deal") return { ok: false, reason: "not-deal-phase" };
+  const player = state.players[playerId];
+  if (!player) return { ok: false, reason: "unknown-player" };
+  if (player.roleChosen) return { ok: false, reason: "role-already-chosen" };
+  if (!player.roleOptions.includes(roleId)) return { ok: false, reason: "role-not-offered" };
+  const next = cloneState(state);
+  const chosen = next.players[playerId];
+  chosen.role = roleId;
+  chosen.roleOptions = [];
+  chosen.roleChosen = true;
+  const events: GameEvent[] = [{ type: "roleChosen", playerId, role: roleId }];
+  pushEvents(next, events);
+  return { ok: true, state: next, events };
 }
 
 export function canPlayCard(
@@ -848,6 +865,8 @@ export function project(state: GameState, viewerId: number): Projection {
       id: p.id,
       name: p.name,
       role: p.role,
+      roleOptions: p.roleOptions.slice(),
+      roleChosen: p.roleChosen,
       alive: p.alive,
       handCount: p.hand.length,
       accusations: accusationTotal(state, p.id),

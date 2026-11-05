@@ -8,9 +8,11 @@ import {
   drawTwo,
   effectiveRole,
   endTurn,
+  finishDeal,
   playCard,
   project,
   resolveNight,
+  startGame,
 } from "../src/index.ts";
 import type { CardId, GameState, PlayAction, RoleId } from "../src/types.ts";
 
@@ -120,7 +122,7 @@ function candidates(state: GameState): PlayAction[] {
 
 function runGame(seed: number): string {
   const random = lcg(seed);
-  let state = createGame({ playerCount: 12, witchCount: 2, identityCardsPerPlayer: 3 }, { seed });
+  let state = startGame(finishDeal(createGame({ playerCount: 12, witchCount: 2, identityCardsPerPlayer: 3 }, { seed })), 0);
   let step = 0;
   while (state.phase !== "gameOver" && step < 4000) {
     step += 1;

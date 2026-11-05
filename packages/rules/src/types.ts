@@ -37,7 +37,7 @@ export type RoleId =
   | "william-phipps"
   | "none";
 
-export type Phase = "dawn" | "turnStart" | "action" | "night" | "gameOver";
+export type Phase = "deal" | "dawn" | "turnStart" | "action" | "night" | "gameOver";
 export type Winner = "town" | "witches" | null;
 
 export interface GameConfig {
@@ -75,6 +75,10 @@ export interface PlayerState {
   id: number;
   name: string;
   role: RoleId;
+  /** 发牌相位收到的候选角色；选定后清空。 */
+  roleOptions: RoleId[];
+  /** 是否已选定角色；8 人以上开局即为 true。 */
+  roleChosen: boolean;
   hand: CardId[];
   accusations: CardId[];
   blue: CardId[];
@@ -131,6 +135,7 @@ export interface CardSpec {
 }
 
 export type GameEvent =
+  | { type: "roleChosen"; playerId: number; role: RoleId }
   | { type: "gameStarted"; firstPlayerId: number }
   | { type: "blackCatPlaced"; targetId: number }
   | { type: "turnStarted"; playerId: number }
@@ -169,6 +174,8 @@ export interface PublicPlayer {
   id: number;
   name: string;
   role: RoleId;
+  roleOptions: RoleId[];
+  roleChosen: boolean;
   alive: boolean;
   handCount: number;
   accusations: number;

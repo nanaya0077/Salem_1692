@@ -615,6 +615,7 @@ function formatEvent(e) {
   const cn = (id) => '<span class="gold">「' + esc(card(id).name) + "」</span>";
   switch (e.type) {
     case "gameStarted": return "对局开始，先手 " + n(e.firstPlayerId) + "。";
+    case "roleChosen": return n(e.playerId) + " 选了 " + esc(roleName(e.role)) + "。";
     case "blackCatPlaced": return "黑猫被放到了 " + n(e.targetId) + " 面前。";
     case "turnStarted": return "轮到 " + n(e.playerId) + "。";
     case "turnEnded": return n(e.playerId) + " 结束回合。";
