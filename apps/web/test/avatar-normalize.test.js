@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  AVATAR_BUDGET_BYTES,
   AVATAR_TIERS,
   budgetVerdict,
   cropRect,
   dataUrlMime,
   encodingPlan,
   isTargetDataUrl,
+  matchesMime,
   tierAt,
   withinBudget,
 } from "../avatar-normalize.js";
@@ -28,7 +28,11 @@ test("高 > 宽：上下各裁掉等高留白", () => {
 });
 
 test("非偶数差值的留白向下取整，源矩形仍是整数像素", () => {
-  assert.deepEqual(cropRect(1001, 600), { x: 200, y: 0, size: 600 });
+  const rect = cropRect(1001, 600);
+  assert.deepEqual(rect, { x: 200, y: 0, size: 600 });
+  // 取整后两侧只差 1 像素：左 200、右 201，加起来正好是原宽。
+  assert.equal(rect.x, 200);
+  assert.equal(1001 - rect.size - rect.x, 201);
 });
 
 test("宽高读不出来（0 / 负数 / 非数字）时不裁切，交给页面提示换图", () => {
@@ -100,6 +104,20 @@ test("能读出 data URL 声称的 MIME，用来核对浏览器是否真的给�
   assert.equal(dataUrlMime("data:text/plain,hello"), null);
 });
 
+test("核对「拿到的是不是我请求的格式」：WebP 位上的 PNG 要认出来", () => {
+  const requested = "image/webp";
+  assert.equal(matchesMime("data:image/webp;base64,UklGRg==", requested), true);
+  assert.equal(matchesMime("data:image/webp;base64,UklGRg==", "image/jpeg"), false);
+  // 浏览器对不支持的格式会静默返回 PNG，这里必须落空，页面才会退到下一个候选。
+  assert.equal(matchesMime("data:image/png;base64,iVBORw0KGgo=", requested), false);
+});
+
+test("带参数的 data URL 不算目标格式：前缀按服务端逐字接受的样子认", () => {
+  // 服务端只认 data:image/jpeg;base64, 这一种形状，带 charset 的串发过去也会被拒。
+  assert.equal(dataUrlMime("data:image/jpeg;charset=utf-8;base64,/9j/4A=="), null);
+  assert.equal(isTargetDataUrl("data:image/jpeg;charset=utf-8;base64,/9j/4A=="), false);
+});
+
 test("体积预算：恰好等于预算算未超限，多一个字节就算超限", () => {
   assert.equal(withinBudget(40 * 1024, 40 * 1024), true);
   assert.equal(withinBudget(40 * 1024 - 1, 40 * 1024), true);
@@ -107,16 +125,15 @@ test("体积预算：恰好等于预算算未超限，多一个字节就算超�
 });
 
 test("体积预算判断同时回答「超没超」与「还有没有下一档可降」", () => {
-  assert.deepEqual(budgetVerdict(40960, AVATAR_BUDGET_BYTES, 0), { over: false, retryTier: null });
+  const budget = 40 * 1024; // 40KB 量级，父票 #1 的裁决值；具体接线在 #4。
 
-  const retry = budgetVerdict(50000, AVATAR_BUDGET_BYTES, 0);
+  assert.deepEqual(budgetVerdict(40960, budget, 0), { over: false, downgradeTo: null });
+
+  const retry = budgetVerdict(50000, budget, 0);
   assert.equal(retry.over, true);
-  assert.equal(retry.retryTier.name, "reduced");
-  assert.equal(retry.retryTier.edge, 160);
+  assert.equal(retry.downgradeTo.name, "reduced");
+  assert.equal(retry.downgradeTo.edge, 160);
 
-  assert.deepEqual(budgetVerdict(50000, AVATAR_BUDGET_BYTES, 1), { over: true, retryTier: null });
-});
-
-test("客户端默认预算按 40KB 量级（本仓裁决）", () => {
-  assert.equal(AVATAR_BUDGET_BYTES, 40 * 1024);
+  // 已经在最后一档还超限：超了，但没档可降，只能提示换图。
+  assert.deepEqual(budgetVerdict(50000, budget, 1), { over: true, downgradeTo: null });
 });
