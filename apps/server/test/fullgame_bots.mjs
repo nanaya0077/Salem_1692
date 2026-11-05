@@ -21,6 +21,8 @@ const GAME_TIMEOUT_MS = Math.max(5000, Number(process.env.GAME_TIMEOUT_MS || 180
 const BOT_DELAY_MS = Math.max(0, Number(process.env.BOT_DELAY_MS || 15));
 const PLAY_RATE = Math.min(1, Math.max(0, Number(process.env.PLAY_RATE ?? 0.35)));
 const PLAYER_COUNT = 12;
+const DEBUG = process.env.DEBUG === "1";
+const debug = (...args) => { if (DEBUG) console.log("[debug]", ...args); };
 
 const EXPECTED_ERRORS = new Set([
   "not-your-turn",
@@ -126,6 +128,7 @@ class BotClient {
       this.projection = message.projection;
       this.private = message.private;
       this.room = message.room ?? this.room;
+      if (DEBUG) debug(this.name, "projection", message.projection?.phase, "current", message.projection?.currentPlayerId, "v", message.projection?.version);
       this.think();
       return;
     }
@@ -152,10 +155,26 @@ class BotClient {
   }
 
   queue(action) {
-    if (this.actionTimer) return;
+    // 新状态覆盖旧动作：夜晚/换人时，旧的定时器不能把过期动作发出去。
+    if (this.actionTimer) clearTimeout(this.actionTimer);
+    const expectedPhase = action?.kind === "dawn" ? "dawn" : action?.kind === "night" ? "night" : "action";
     this.actionTimer = setTimeout(() => {
       this.actionTimer = null;
-      if (!this.closed) this.act(action);
+      if (this.closed) return;
+      // 延迟期间阶段可能已经结算；过期动作不发，按最新投影重排。
+      if (this.projection?.phase !== expectedPhase) {
+        debug(this.name, "skip stale", action?.kind, "expected", expectedPhase, "actual", this.projection?.phase);
+        this.lastKey = null;
+        this.think();
+        return;
+      }
+      // 延迟期间可能被夜晚/红卡结算杀死；死人不再发动作。
+      if (this.private?.alive === false) {
+        debug(this.name, "skip dead", action?.kind);
+        return;
+      }
+      debug(this.name, "act", JSON.stringify(action), "phase", this.projection?.phase, "current", this.projection?.currentPlayerId);
+      this.act(action);
     }, BOT_DELAY_MS + (this.index % 6) * 4);
   }
 
@@ -181,7 +200,10 @@ class BotClient {
 
     if (p.phase === "night" && priv?.alive && priv?.night && !priv.night.submitted) {
       const info = priv.night;
-      if (!info.isWitch && !info.isConstable && !info.canConfess) return;
+      const required = info.required ?? [];
+      // 有必须投票的人时，只让女巫/警长投；没有必须投票的人时，任意活人投票即可收夜。
+      const mustVote = info.isWitch || info.isConstable || required.length === 0;
+      if (!mustVote || !info.canConfess) return;
       this.lastKey = key;
       const payload = { kind: "night", confess: false };
       if (info.isWitch) payload.targetId = pick(aliveOtherIds(p, this.seatId));

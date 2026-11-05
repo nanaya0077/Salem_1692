@@ -48,9 +48,10 @@ node --check apps/web/app.js
 node apps/server/test/smoke.mjs
 node apps/server/test/lifecycle.mjs
 BASE=http://127.0.0.1:8080 node apps/server/test/bots_add.mjs
+BASE=http://127.0.0.1:8080 GAMES=3 node apps/server/test/fullgame_bots.mjs
 ```
 
-当前规则测试 32 条全过，含 12 人 48 seed 随机对局 soak（牌张守恒、投影零泄漏、能到终局；可用 `SOAK_SEEDS=300` 扩压）；`smoke.mjs` 会自建 4 人房走完创建、加入、准备、开局、黎明、抽牌；`lifecycle.mjs` 覆盖大厅踢人、对局中断线 token 重连、房主转移；`bots_add.mjs` 验证房主加 3 个机器人后可开局、机器人自动过回合。
+当前规则测试 32 条全过，含 12 人 48 seed 随机对局 soak（牌张守恒、投影零泄漏、能到终局；可用 `SOAK_SEEDS=300` 扩压）；`smoke.mjs` 会自建 4 人房走完创建、加入、准备、开局、黎明、抽牌；`lifecycle.mjs` 覆盖大厅踢人、对局中断线 token 重连、房主转移；`bots_add.mjs` 验证房主加 3 个机器人后可开局、机器人自动过回合；`fullgame_bots.mjs` 用 12 个 WebSocket 客户端自动建房、准备、抽牌/出牌、黎明/夜晚投票直到终局，逐局输出房间、耗时、胜方与错误汇总，`GAMES` 控制局数。
 
 ## 目录
 

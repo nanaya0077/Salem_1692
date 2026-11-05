@@ -97,7 +97,7 @@ type Projection = {
 - 开局：所有在座玩家准备且在线；服务端洗牌、发角色卡/身份卡/手牌；`normalizeSeatIds` 按加入时间重排座位，避免大厅离开造成索引错位。
 - 掉线：默认 60 秒宽限（`GRACE_MS`）；超时托管，只自动“抽 2 张/结束回合”，不代做指控、自首、锤子、夜晚击杀等关键决策；重连凭 `sessionStorage` token 回原座位。
 - 房主离开：自动转给最早加入的在线玩家。
-- 自动化：`apps/server/test/lifecycle.mjs` 覆盖大厅踢人、对局中断线 token 回原座位、房主转移；`apps/server/test/bots_add.mjs` 覆盖房主加 3 个机器人、开局与机器人自动过回合。
+- 自动化：`apps/server/test/lifecycle.mjs` 覆盖大厅踢人、对局中断线 token 回原座位、房主转移；`apps/server/test/bots_add.mjs` 覆盖房主加 3 个机器人、开局与机器人自动过回合；`apps/server/test/fullgame_bots.mjs` 覆盖 12 人整局自动压测（12 个 WebSocket 客户端、自动建房/准备/抽牌/出牌/黎明/夜晚，直到终局），逐局输出耗时、胜方与错误汇总，`GAMES=3` 可连跑多局。
 - 回合计时：默认 90 秒（`TURN_MS`）；夜晚 30 秒、黎明 45 秒，可环境变量覆盖。
 - 中途退出：座位保留为断线托管，不按死亡处理；MVP 不做观战；提前结束需全员投票（未实现）。
 - 清理：结束/空闲 30 分钟销毁；事件日志未持久化。
