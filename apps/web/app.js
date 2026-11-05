@@ -1,3 +1,15 @@
+import {
+  AVATAR_BUDGET_BYTES,
+  AVATAR_DOWNSCALED_TIER,
+  AVATAR_REGULAR_TIER,
+  budgetVerdict,
+  encodingCandidates,
+  estimateDataUrlBytes,
+  isTargetAvatarDataUrl,
+  squareCropRect,
+} from "./avatar-normalize.js";
+import { cleanName, createProfileStore } from "./profile-store.js";
+
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -30,6 +42,8 @@ const S = {
   leaving: false,
   autoJoined: false,
   sent: [],
+  avatars: {},
+  quotaWarned: false,
 };
 // 调试入口：浏览器控制台与联调脚本可直接读当前状态。
 globalThis.__salem = S;
@@ -112,6 +126,8 @@ function connect() {
   ws.addEventListener("open", () => {
     S.open = true;
     S.autoJoined = false;
+    // 新连接 = 新的补传机会；同一次连接里 maybeReupload 只会发一次。
+    profileStore.beginConnection();
     const saved = loadSession();
     if (saved?.code && saved?.token && !S.room) {
       send({ type: "join", code: saved.code, token: saved.token });
@@ -157,11 +173,34 @@ function act(action) {
   send({ type: "action", commandId: commandId(), action });
 }
 
+// 本地存储包一层：读失败按「没写过」处理；写失败保持抛出，让 profile-store 判定降级。
+const browserStorage = {
+  getItem(key) {
+    try { return localStorage.getItem(key); } catch { return null; }
+  },
+  setItem(key, value) {
+    localStorage.setItem(key, value);
+  },
+  removeItem(key) {
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  },
+};
+
+const profileStore = createProfileStore(browserStorage, { send: (message) => send(message) });
+
 function handle(msg) {
   switch (msg.type) {
     case "welcome":
       S.seatId = msg.seatId;
       saveSession({ code: msg.code, token: msg.token, seatId: msg.seatId });
+      S.avatars = msg.avatars && typeof msg.avatars === "object" ? { ...msg.avatars } : {};
+      // 服务端没有自己的头像、本机却存着：连上后补一次，重连亦然（服务端同值幂等）。
+      profileStore.maybeReupload({ avatars: S.avatars, seatId: S.seatId });
+      break;
+    case "avatar":
+      if (!S.avatars) S.avatars = {};
+      if (msg.dataUrl) S.avatars[msg.seatId] = msg.dataUrl;
+      else delete S.avatars[msg.seatId];
       break;
     case "room":
       S.room = msg.room;
@@ -236,10 +275,12 @@ function renderLobby() {
     if (seat.id === room.hostSeat) tags.push("房主");
     if (seat.id === S.seatId) tags.push("你");
     if (seat.bot) tags.push("机器人");
+    const isMe = seat.id === S.seatId;
     const kick = isHost() && seat.bot
       ? '<button class="seat-kick" data-kick="' + seat.id + '" title="移除机器人">×</button>'
       : "";
-    return '<div class="lobby-seat ' + (seat.ready ? "ready " : "") + (seat.connected ? "" : "offline") + '">' +
+    const profileEntry = isMe ? ' data-profile="self" role="button" tabindex="0" title="编辑个人资料"' : "";
+    return '<div class="lobby-seat ' + (seat.ready ? "ready " : "") + (seat.connected ? "" : "offline") + '"' + profileEntry + ">" +
       '<div class="avatar">' + esc(seat.name.slice(0, 1)) + "</div>" +
       '<div style="min-width:0"><div class="seat-name">' + esc(seat.name) + "</div>" +
       '<div class="seat-sub">' + (tags.join(" · ") || "玩家") + (seat.connected ? "" : " · 离线") + (seat.ready ? " · 已准备" : " · 未准备") + "</div></div>" + kick + "</div>";
@@ -673,6 +714,323 @@ function closeModal() {
   S.modalCard = null;
 }
 
+// ---------- 个人资料弹层 ----------
+
+let profileDraft = null;
+
+function openProfileEntry() {
+  return selfSeat()?.name ?? ($("nameInput").value.trim() || profileStore.readName() || "");
+}
+
+function openProfile() {
+  const name0 = openProfileEntry();
+  const avatar0 = S.avatars?.[S.seatId] ?? profileStore.readAvatar();
+  profileDraft = { name0, avatar0, avatar: avatar0 };
+  $("profileName").value = name0;
+  $("profileHint").textContent = "";
+  renderProfilePreview();
+  $("profileModal").hidden = false;
+  $("profileName").focus();
+}
+
+function closeProfile() {
+  $("profileModal").hidden = true;
+  // 未保存关闭：丢掉草稿，服务端与本机都保持原样。
+  profileDraft = null;
+  $("profileFile").value = "";
+  $("profileHint").textContent = "";
+}
+
+function renderProfilePreview() {
+  const box = $("profileAvatar");
+  const avatar = profileDraft?.avatar ?? null;
+  if (avatar) {
+    box.innerHTML = '<img src="' + esc(avatar) + '" alt="" />';
+    return;
+  }
+  box.textContent = cleanName($("profileName").value).slice(0, 1);
+}
+
+function warnQuotaOnce() {
+  if (S.quotaWarned) return;
+  S.quotaWarned = true;
+  toast("本机存不下这张图，这次先不带头像");
+}
+
+function saveProfile() {
+  const draft = profileDraft;
+  if (!draft) return;
+  const name = cleanName($("profileName").value);
+  const nameChanged = cleanName(draft.name0) !== name;
+  const avatarChanged = draft.avatar !== draft.avatar0;
+  const payload = { type: "profile" };
+  let quotaDegraded = false;
+
+  if (nameChanged) {
+    const written = profileStore.writeName(name);
+    quotaDegraded = quotaDegraded || written.degraded;
+    payload.name = name;
+  }
+
+  if (avatarChanged) {
+    if (draft.avatar === null) {
+      profileStore.removeAvatar();
+      payload.avatar = null;
+    } else {
+      const written = profileStore.writeAvatar(draft.avatar);
+      if (written.ok) {
+        payload.avatar = draft.avatar;
+      } else if (written.degraded) {
+        // 配额失败：降级为「本次无头像」，改名照旧；旧图一并清掉，免得下次又被补传。
+        quotaDegraded = true;
+        profileStore.removeAvatar();
+      } else {
+        $("profileHint").textContent = "这张图片存不下来，点「选择图片」再试一次。";
+        return;
+      }
+    }
+  }
+
+  if (quotaDegraded) warnQuotaOnce();
+
+  const hasChanges = payload.name !== undefined || payload.avatar !== undefined;
+  if (!hasChanges) {
+    closeProfile();
+    return;
+  }
+
+  const canSend = Boolean(S.room) && S.seatId !== null && S.seatId !== undefined;
+  if (!canSend) {
+    $("nameInput").value = name;
+    closeProfile();
+    toast("已存在本机，进房后自动带上", true);
+    return;
+  }
+
+  if (!send(payload)) return;
+  if (payload.avatar === null) delete S.avatars[S.seatId];
+  else if (payload.avatar !== undefined) S.avatars[S.seatId] = payload.avatar;
+  $("nameInput").value = name;
+  closeProfile();
+  toast("个人资料已更新", true);
+}
+
+// 图片处理：格式拒收 → 解码（优先 createImageBitmap）→ 方形裁切 → 两档编码与体积预算。
+
+function containsAscii(bytes, text) {
+  const codes = Array.from(text, (ch) => ch.charCodeAt(0));
+  outer: for (let i = 0; i + codes.length <= bytes.length; i += 1) {
+    for (let j = 0; j < codes.length; j += 1) {
+      if (bytes[i + j] !== codes[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+function isAnimatedBytes(bytes) {
+  if (bytes.length >= 6) {
+    const head = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]);
+    if (head === "GIF87a" || head === "GIF89a") return true;
+  }
+  // APNG 的 acTL、动图 WebP 的 ANIM/ANMF 块都出现在文件头部附近。
+  return containsAscii(bytes, "acTL") || containsAscii(bytes, "ANIM") || containsAscii(bytes, "ANMF");
+}
+
+function exifOrientation(buffer) {
+  const view = new DataView(buffer);
+  if (view.byteLength < 4) return 1;
+  if (view.getUint8(0) !== 0xff || view.getUint8(1) !== 0xd8) return 1;
+  let offset = 2;
+  while (offset + 4 <= view.byteLength) {
+    if (view.getUint8(offset) !== 0xff) break;
+    const marker = view.getUint8(offset + 1);
+    if (marker === 0xda || marker === 0xd9) break;
+    const length = view.getUint16(offset + 2, false);
+    if (length < 2 || offset + 2 + length > view.byteLength) break;
+    if (marker === 0xe1 && offset + 10 <= view.byteLength) {
+      let isExif = true;
+      for (let i = 0; i < 6; i += 1) {
+        if (view.getUint8(offset + 4 + i) !== "Exif\0\0".charCodeAt(i)) isExif = false;
+      }
+      if (isExif) return readTiffOrientation(view, offset + 10);
+    }
+    offset += 2 + length;
+  }
+  return 1;
+}
+
+function readTiffOrientation(view, start) {
+  if (start + 8 > view.byteLength) return 1;
+  const first = view.getUint8(start);
+  const second = view.getUint8(start + 1);
+  const little = first === 0x49 && second === 0x49;
+  const big = first === 0x4d && second === 0x4d;
+  if (!little && !big) return 1;
+  const get16 = (at) => view.getUint16(at, little);
+  const ifd = start + view.getUint32(start + 4, little);
+  if (ifd + 2 > view.byteLength) return 1;
+  const count = get16(ifd);
+  for (let i = 0; i < count; i += 1) {
+    const entry = ifd + 2 + i * 12;
+    if (entry + 12 > view.byteLength) break;
+    if (get16(entry) === 0x0112) {
+      const value = get16(entry + 8);
+      return value >= 1 && value <= 8 ? value : 1;
+    }
+  }
+  return 1;
+}
+
+/** EXIF 方向对应的绘制变换：把原图坐标映射到「已摆正」的方向。 */
+function orientationMatrix(orientation, width, height) {
+  switch (orientation) {
+    case 2: return { a: -1, b: 0, c: 0, d: 1, e: width, f: 0 };
+    case 3: return { a: -1, b: 0, c: 0, d: -1, e: width, f: height };
+    case 4: return { a: 1, b: 0, c: 0, d: -1, e: 0, f: height };
+    case 5: return { a: 0, b: 1, c: 1, d: 0, e: 0, f: 0 };
+    case 6: return { a: 0, b: 1, c: -1, d: 0, e: height, f: 0 };
+    case 7: return { a: 0, b: -1, c: -1, d: 0, e: height, f: width };
+    case 8: return { a: 0, b: -1, c: 1, d: 0, e: 0, f: width };
+    default: return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  }
+}
+
+function multiplyMatrix(m1, m2) {
+  return {
+    a: m1.a * m2.a + m1.c * m2.b,
+    b: m1.b * m2.a + m1.d * m2.b,
+    c: m1.a * m2.c + m1.c * m2.d,
+    d: m1.b * m2.c + m1.d * m2.d,
+    e: m1.a * m2.e + m1.c * m2.f + m1.e,
+    f: m1.b * m2.e + m1.d * m2.f + m1.f,
+  };
+}
+
+async function decodeAvatarSource(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        orientation: 1,
+        naturalWidth: bitmap.width,
+        naturalHeight: bitmap.height,
+        release: () => bitmap.close?.(),
+      };
+    } catch {
+      // 浏览器不认这个选项或这次解码失败：回退到 Image 元素自己摆正。
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("decode"));
+      el.src = url;
+    });
+    const orientation = file.type === "image/jpeg" ? exifOrientation(await file.slice(0, 256 * 1024).arrayBuffer()) : 1;
+    const naturalWidth = image.naturalWidth;
+    const naturalHeight = image.naturalHeight;
+    const swapped = orientation >= 5;
+    return {
+      source: image,
+      width: swapped ? naturalHeight : naturalWidth,
+      height: swapped ? naturalWidth : naturalHeight,
+      orientation,
+      naturalWidth,
+      naturalHeight,
+      release: () => URL.revokeObjectURL(url),
+    };
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
+}
+
+function encodeAvatarCanvas(canvas, tier) {
+  let over = false;
+  for (const candidate of encodingCandidates(tier)) {
+    const dataUrl = candidate.quality === undefined
+      ? canvas.toDataURL(candidate.mime)
+      : canvas.toDataURL(candidate.mime, candidate.quality);
+    // canvas 对不支持的格式会静默回退 PNG，所以按返回串前缀确认，而不是按请求的 mime。
+    if (!isTargetAvatarDataUrl(dataUrl)) continue;
+    const verdict = budgetVerdict(estimateDataUrlBytes(dataUrl), AVATAR_BUDGET_BYTES);
+    if (!verdict.over) return { ok: true, dataUrl };
+    over = true;
+  }
+  return { ok: false, over };
+}
+
+function renderAvatarTier(decoded, tier) {
+  const crop = squareCropRect(decoded.width, decoded.height);
+  if (!crop.size) return { ok: false, over: false };
+  const canvas = document.createElement("canvas");
+  canvas.width = tier.edge;
+  canvas.height = tier.edge;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { ok: false, over: false };
+  const scale = tier.edge / crop.size;
+  const cropMatrix = { a: scale, b: 0, c: 0, d: scale, e: -crop.sx * scale, f: -crop.sy * scale };
+  const base = orientationMatrix(decoded.orientation, decoded.naturalWidth, decoded.naturalHeight);
+  const matrix = multiplyMatrix(cropMatrix, base);
+  ctx.setTransform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(decoded.source, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return encodeAvatarCanvas(canvas, tier);
+}
+
+async function prepareAvatarFile(file) {
+  if (!file.type || !file.type.startsWith("image/")) {
+    return { ok: false, message: "这不是图片文件。" };
+  }
+  if (file.type === "image/svg+xml") {
+    return { ok: false, message: "不支持 SVG，换一张照片试试。" };
+  }
+  const head = new Uint8Array(await file.slice(0, 8192).arrayBuffer());
+  if (file.type === "image/gif" || isAnimatedBytes(head)) {
+    return { ok: false, message: "不支持动图，换一张静态图片。" };
+  }
+  let decoded;
+  try {
+    decoded = await decodeAvatarSource(file);
+  } catch {
+    return { ok: false, message: "这张图片格式无法读取，试试截图后再选。" };
+  }
+  try {
+    const regular = renderAvatarTier(decoded, AVATAR_REGULAR_TIER);
+    if (regular.ok) return regular;
+    if (!regular.over) return { ok: false, message: "这张图片格式无法读取，试试截图后再选。" };
+    const downscaled = renderAvatarTier(decoded, AVATAR_DOWNSCALED_TIER);
+    if (downscaled.ok) return downscaled;
+    return { ok: false, message: "这张图片太大了，换一张小一点的图。" };
+  } finally {
+    decoded.release();
+  }
+}
+
+async function onProfileFileChange(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  $("profileHint").textContent = "正在处理图片…";
+  const result = await prepareAvatarFile(file);
+  if (!profileDraft) return;
+  if (!result.ok) {
+    $("profileHint").textContent = result.message;
+    return;
+  }
+  profileDraft.avatar = result.dataUrl;
+  renderProfilePreview();
+  $("profileHint").textContent = "已选好新头像，点「保存」才会同步。";
+}
+
+
 function beginPlay(cardId, asWitness = false, useAbigail = false) {
   if (!myTurn()) { toast("还没轮到你"); return; }
   const c = card(cardId);
@@ -766,7 +1124,9 @@ function leaveToLanding() {
   S.pending = null;
   S.nightKey = null;
   S.dawnKey = null;
+  S.avatars = {};
   closeModal();
+  closeProfile();
   render();
   setTimeout(() => { S.leaving = false; }, 300);
 }
@@ -781,20 +1141,22 @@ function copyInvite() {
 
 function bind() {
   $("createBtn").addEventListener("click", () => {
-    const name = $("nameInput").value.trim();
-    if (!name) { $("landingError").textContent = "请先填一个昵称。"; return; }
+    const raw = $("nameInput").value.trim();
+    if (!raw) { $("landingError").textContent = "请先填一个昵称。"; return; }
     $("landingError").textContent = "";
-    localStorage.setItem("salem.name", name);
+    const name = cleanName(raw);
+    profileStore.writeName(name);
     S.leaving = false;
     send({ type: "create", name });
   });
   $("joinBtn").addEventListener("click", () => {
-    const name = $("nameInput").value.trim();
+    const raw = $("nameInput").value.trim();
     const code = $("codeInput").value.trim().toUpperCase();
-    if (!name) { $("landingError").textContent = "请先填一个昵称。"; return; }
+    if (!raw) { $("landingError").textContent = "请先填一个昵称。"; return; }
     if (code.length !== 6) { $("landingError").textContent = "房码是 6 位。"; return; }
     $("landingError").textContent = "";
-    localStorage.setItem("salem.name", name);
+    const name = cleanName(raw);
+    profileStore.writeName(name);
     S.leaving = false;
     send({ type: "join", code, name });
   });
@@ -809,9 +1171,18 @@ function bind() {
   });
   $("addBotBtn").addEventListener("click", () => send({ type: "add-bot" }));
   $("lobbySeats").addEventListener("click", (event) => {
-    const btn = event.target.closest("[data-kick]");
-    if (!btn || !isHost()) return;
-    send({ type: "kick", seatId: Number(btn.dataset.kick) });
+    const kick = event.target.closest("[data-kick]");
+    if (kick) {
+      if (isHost()) send({ type: "kick", seatId: Number(kick.dataset.kick) });
+      return;
+    }
+    if (event.target.closest("[data-profile]")) openProfile();
+  });
+  $("lobbySeats").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (!event.target.closest("[data-profile]")) return;
+    event.preventDefault();
+    openProfile();
   });
   $("startBtn").addEventListener("click", () => send({ type: "start" }));
   $("applyConfig").addEventListener("click", () => {
@@ -933,6 +1304,27 @@ function bind() {
     if (S.modalCard) beginPlay(S.modalCard, false, true);
   });
   document.querySelectorAll("[data-close-modal]").forEach((el) => el.addEventListener("click", closeModal));
+  $("openProfileLanding").addEventListener("click", openProfile);
+  $("selfPanel").addEventListener("click", openProfile);
+  $("selfPanel").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openProfile();
+  });
+  $("profilePick").addEventListener("click", () => $("profileFile").click());
+  $("profileFile").addEventListener("change", onProfileFileChange);
+  $("profileRemove").addEventListener("click", () => {
+    if (!profileDraft) return;
+    profileDraft.avatar = null;
+    renderProfilePreview();
+    $("profileHint").textContent = "点「保存」后移除头像。";
+  });
+  $("profileSave").addEventListener("click", saveProfile);
+  $("profileName").addEventListener("input", renderProfilePreview);
+  document.querySelectorAll("[data-close-profile]").forEach((el) => el.addEventListener("click", closeProfile));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("profileModal").hidden) closeProfile();
+  });
   $("nightTargets").addEventListener("click", (event) => {
     const button = event.target.closest("[data-night-target]");
     if (!button) return;
@@ -987,7 +1379,7 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   const urlCode = (params.get("code") ?? "").toUpperCase();
   if (urlCode) $("codeInput").value = urlCode.slice(0, 6);
-  try { $("nameInput").value = localStorage.getItem("salem.name") ?? ""; } catch { /* ignore */ }
+  $("nameInput").value = profileStore.readName();
   try {
     const res = await fetch("/assets/cards/cards.zh.json", { cache: "force-cache" });
     const data = await res.json();
