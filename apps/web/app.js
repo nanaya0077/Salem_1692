@@ -14,7 +14,7 @@ const S = {
   modalCard: null,
   chats: [],
   avatars: new Map(),
-  avatarSrc: new Map(),
+  avatarUrls: new Map(),
   nightKey: null,
   turnLabel: "",
   nightChoice: { targetId: null, hammerTargetId: null, confess: false, useWilliam: false },
@@ -90,9 +90,27 @@ function seatName(id) {
   return fromProjection?.name ?? "玩家 " + id;
 }
 
-/** 首字占位按「字符」取：Array.from 按码位切，emoji 昵称不会被切出半个码元。 */
+/** 没有 Intl.Segmenter 的旧浏览器退回按码位切；有就按字素簇切。 */
+const graphemeSegmenter = (() => {
+  try {
+    return typeof Intl?.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+  } catch {
+    return null;
+  }
+})();
+
+/**
+ * 没设头像时显示的首字：取第一个字素簇，国旗、家庭 emoji、带肤色的 emoji 都整颗显示。
+ * 旧浏览器拿不到 Intl.Segmenter 时按码位回落，至少不会切出半个码元。
+ */
 function initialOf(name) {
-  return Array.from(String(name ?? ""))[0] ?? "？";
+  const text = String(name ?? "").trim();
+  if (!text) return "？";
+  if (graphemeSegmenter) {
+    const first = graphemeSegmenter.segment(text)[Symbol.iterator]().next();
+    if (!first.done) return first.value.segment;
+  }
+  return Array.from(text)[0] ?? "？";
 }
 
 /** data URL → Blob；解析不出来返回 null，由调用方退回 data URL 直出。 */
@@ -114,7 +132,7 @@ function dataUrlToBlob(dataUrl) {
 function avatarSrc(seatId) {
   const dataUrl = S.avatars.get(seatId);
   if (!dataUrl) return null;
-  const cached = S.avatarSrc.get(seatId);
+  const cached = S.avatarUrls.get(seatId);
   if (cached && cached.dataUrl === dataUrl) return cached.src;
   let src = dataUrl;
   try {
@@ -122,21 +140,21 @@ function avatarSrc(seatId) {
     if (blob && typeof URL.createObjectURL === "function") src = URL.createObjectURL(blob);
   } catch { /* 退回 data URL */ }
   releaseAvatar(seatId);
-  S.avatarSrc.set(seatId, { dataUrl, src });
+  S.avatarUrls.set(seatId, { dataUrl, src });
   return src;
 }
 
 /** 释放某个座位的 blob 地址（换了头像或移除头像时）。 */
 function releaseAvatar(seatId) {
-  const cached = S.avatarSrc.get(seatId);
+  const cached = S.avatarUrls.get(seatId);
   if (!cached) return;
-  S.avatarSrc.delete(seatId);
+  S.avatarUrls.delete(seatId);
   if (cached.src.startsWith("blob:")) URL.revokeObjectURL(cached.src);
 }
 
 /** 全量替换头像表（welcome）：旧 blob 地址全部释放，重绘时按需重建。 */
 function resetAvatars(avatars) {
-  for (const seatId of [...S.avatarSrc.keys()]) releaseAvatar(seatId);
+  for (const seatId of [...S.avatarUrls.keys()]) releaseAvatar(seatId);
   S.avatars = new Map(Object.entries(avatars ?? {}).map(([id, url]) => [Number(id), url]));
 }
 
@@ -148,7 +166,7 @@ function setAvatar(seatId, dataUrl) {
 }
 
 /**
- * 所有「标人」位置共用这一个圆牌：有头像放图，没有回落昵称首字。
+ * 所有显示玩家的位置共用这一个头像牌：有头像放图，没有回落昵称首字。
  * 尺寸仍由各处的 .avatar 规则决定，这里只管内容。
  */
 function avatarChip(seatId, name) {
