@@ -32,6 +32,20 @@ export function cleanName(raw) {
 }
 
 /**
+ * 昵称首字：头像缺省时圆牌里的那一个字。
+ * 按字符（码位）取，不按 UTF-16 码元取 —— emoji 昵称不会被切成半个代理对。
+ * 空串、纯空白与非字符串一律回落到默认名字的首字，圆牌不留空。
+ *
+ * @param {unknown} name
+ * @returns {string}
+ */
+export function initialOf(name) {
+  const text = typeof name === "string" ? name.trim() : "";
+  if (!text) return Array.from(DEFAULT_NAME)[0];
+  return Array.from(text)[0];
+}
+
+/**
  * 个人资料存储。
  *
  * @param {{ getItem(key: string): string|null, setItem(key: string, value: string): void, removeItem(key: string): void }} storage
