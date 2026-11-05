@@ -1,4 +1,4 @@
-const VERSION = "salem-v2";
+const VERSION = "salem-v3";
 const SHELL = [
   "/",
   "/styles.css",

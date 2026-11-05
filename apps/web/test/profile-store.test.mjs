@@ -8,6 +8,7 @@ import {
   NAME_KEY,
   cleanName,
   createProfileStore,
+  initialOf,
 } from "../profile-store.js";
 
 const WEBP = "data:image/webp;base64,UklGRg==";
@@ -64,6 +65,28 @@ test("昵称清洗：去控制字符与尖括号、trim、空则默认名字", (
 test("昵称清洗：最多 16 字", () => {
   assert.equal(cleanName("a".repeat(20)), "a".repeat(16));
   assert.equal(cleanName("一二三四五六七八九十一二三四五六七八").length, 16);
+});
+
+test("首字：按字符取，emoji 昵称取整个 emoji 而不是半个代理对", () => {
+  assert.equal(initialOf("🐱喵"), "🐱");
+  assert.equal(initialOf("🌙"), "🌙");
+  assert.equal(initialOf("阿比盖尔"), "阿");
+  assert.equal(initialOf("  阿比  "), "阿");
+});
+
+test("首字：单字符与仅一个 emoji 都取自身", () => {
+  assert.equal(initialOf("阿"), "阿");
+  assert.equal(initialOf("A"), "A");
+});
+
+test("首字：空串、空白串与非字符串回落到默认名字的首字", () => {
+  const fallback = Array.from(DEFAULT_NAME)[0];
+  assert.equal(initialOf(""), fallback);
+  assert.equal(initialOf("   "), fallback);
+  assert.equal(initialOf("\t\n"), fallback);
+  assert.equal(initialOf(null), fallback);
+  assert.equal(initialOf(undefined), fallback);
+  assert.equal(initialOf(42), fallback);
 });
 
 test("读取：没写过时昵称是空串、头像为空", () => {
