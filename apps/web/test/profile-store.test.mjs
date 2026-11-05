@@ -74,6 +74,13 @@ test("首字：按字符取，emoji 昵称取整个 emoji 而不是半个代理�
   assert.equal(initialOf("  阿比  "), "阿");
 });
 
+test("首字：组合 emoji 取整个字素簇，不切出其中一段", () => {
+  // 家庭 emoji 由 ZWJ 连接、国旗由两个区域指示符组成、肤色是修饰符，都是一整个字素簇。
+  assert.equal(initialOf("👨‍👩‍👧家常"), "👨‍👩‍👧");
+  assert.equal(initialOf("🇨🇳爱国者"), "🇨🇳");
+  assert.equal(initialOf("👍🏽赞"), "👍🏽");
+});
+
 test("首字：单字符与仅一个 emoji 都取自身", () => {
   assert.equal(initialOf("阿"), "阿");
   assert.equal(initialOf("A"), "A");

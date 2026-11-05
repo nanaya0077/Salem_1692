@@ -39,9 +39,27 @@ export function cleanName(raw) {
  * @param {unknown} name
  * @returns {string}
  */
+/**
+ * 昵称首字：头像缺省时圆牌里的那一个字。
+ * 优先按字素簇取：组合 emoji（👨‍👩‍👧、🇨🇳、👍🏽）是一个整字素簇，按码位取只会拿到其中一段，
+ * 圆牌上就成了半个字符。没有 Intl.Segmenter 的环境退回按码位取，至少不会切出半个代理对。
+ * 空串、纯空白与非字符串一律回落到默认名字的首字，圆牌不留空。
+ *
+ * @param {unknown} name
+ * @returns {string}
+ */
 export function initialOf(name) {
   const text = typeof name === "string" ? name.trim() : "";
-  if (!text) return Array.from(DEFAULT_NAME)[0];
+  return firstGrapheme(text || DEFAULT_NAME);
+}
+
+/** 取第一个字素簇；老环境退回第一个码位。 */
+function firstGrapheme(text) {
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text);
+    const first = segments[Symbol.iterator]().next();
+    if (!first.done) return first.value.segment;
+  }
   return Array.from(text)[0];
 }
 
