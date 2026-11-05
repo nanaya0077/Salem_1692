@@ -152,6 +152,7 @@ async function main() {
   let george = null;
   let host2 = null;
   let john2 = null;
+  let john3 = null;
 
   // ——— 建房间：三个人进大厅 ———
   await step("大厅：三个人进房间", async () => {
@@ -285,6 +286,17 @@ async function main() {
     assert.equal(john.errors.length, 0, "静默丢弃不该回 error：" + JSON.stringify(john.errors));
   });
 
+  // ——— 硬闸只被真正落库的写入消耗 ———
+  await step("硬闸：没变化的写入不占闸，随后的真改动仍生效", async () => {
+    await sleep(1100);
+    const beforeAvatars = mary.avatars.length;
+    john.send({ type: "profile", avatar: AVATAR_JPEG }); // 与当前值相同，落不了库
+    await sleep(150);
+    john.send({ type: "profile", name: "约翰闸后" });
+    await waitFor("改名生效", () => mary.nameOf(john.seatId) === "约翰闸后", 2000);
+    assert.equal(mary.avatars.length, beforeAvatars, "无变化的写入不该广播头像");
+  });
+
   // ——— 验收 9：消息里塞别人的 seatId 改不到别人 ———
   await step("越权：塞别人的 seatId 只改到自己", async () => {
     await sleep(1100);
@@ -316,9 +328,24 @@ async function main() {
     assert.equal(john2.welcome.avatars?.[hostId], AVATAR_WEBP, "别的座位的头像不该丢");
   });
 
+  // ——— 重连时改昵称：座位名与投影里的玩家名必须一起换 ———
+  await step("重连改名：座位名与投影里的玩家名同时换新，旧名不残留", async () => {
+    const johnId = john2.seatId;
+    const token = john2.token;
+    john2.close();
+    await sleep(150);
+    john3 = new Client("约翰再连");
+    await john3.open();
+    john3.send({ type: "join", code, name: "重连新名", token });
+    await waitFor("重连 welcome", () => john3.welcome?.reconnected);
+    await waitFor("room 里新名字", () => mary.nameOf(johnId) === "重连新名");
+    await waitFor("projection 里新名字", () => mary.projectionNameOf(johnId) === "重连新名");
+    assert.equal(JSON.stringify(mary.projection).includes("冒名"), false, "投影里还残留重连前的旧名字");
+  });
+
   // ——— 验收 7：硬断言，room / projection 全程不含 data:image ———
   await step("零泄漏：任何 room / projection 序列化后都不含 data:image", async () => {
-    const all = [host, john, mary, george, host2, john2].filter(Boolean);
+    const all = [host, john, mary, george, host2, john2, john3].filter(Boolean);
     for (const c of all) {
       for (const wire of c.visible) {
         assert.equal(wire.includes("data:image"), false, c.tag + " 的 room/projection 泄漏了头像：" + wire.slice(0, 200));
@@ -337,7 +364,7 @@ async function main() {
     console.log("\nprofile 全部通过（" + results.length + " 项）");
   }
 
-  for (const c of [host, john, mary, george, host2, john2]) {
+  for (const c of [host, john, mary, george, host2, john2, john3]) {
     if (!c) continue;
     try { c.close(); } catch {}
   }

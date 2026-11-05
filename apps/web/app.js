@@ -105,12 +105,21 @@ function seatName(id) {
 // 头像位内容：这个座位有头像就给圆形 <img>，没有就回落到昵称首字。
 // 每次重绘都按 S.avatars 现算、不缓存 <img> 节点：设头像、换头像、移除头像
 // 都在下一次 render 的同一帧里对全部展示面生效，不会留下旧图或空位。
-function avatarInner(seatId, name) {
+function avatarImgHtml(dataUrl) {
+  return '<img src="' + esc(dataUrl) + '" alt="" />';
+}
+
+function avatarHtml(seatId, name) {
   const dataUrl = S.avatars?.[seatId];
-  if (typeof dataUrl === "string" && dataUrl) {
-    return '<img src="' + esc(dataUrl) + '" alt="" />';
-  }
+  if (typeof dataUrl === "string" && dataUrl) return avatarImgHtml(dataUrl);
   return esc(initialOf(name));
+}
+
+// 本机的头像是服务端回显之外的乐观更新：弹层里显示的就是马上要发出去的那张图。
+function applyLocalAvatar(seatId, dataUrl) {
+  if (!S.avatars) S.avatars = {};
+  if (dataUrl) S.avatars[seatId] = dataUrl;
+  else delete S.avatars[seatId];
 }
 
 function isSelf(id) {
@@ -209,9 +218,7 @@ function handle(msg) {
       profileStore.maybeReupload({ avatars: S.avatars, seatId: S.seatId });
       break;
     case "avatar":
-      if (!S.avatars) S.avatars = {};
-      if (msg.dataUrl) S.avatars[msg.seatId] = msg.dataUrl;
-      else delete S.avatars[msg.seatId];
+      applyLocalAvatar(msg.seatId, msg.dataUrl);
       // 头像只是一个人的属性，服务端不 sync 房间，得自己重绘，
       // 这样七处展示面（含移除后的回落）在同一帧里一起换掉。
       render();
@@ -295,7 +302,7 @@ function renderLobby() {
       : "";
     const profileEntry = isMe ? ' data-profile="self" role="button" tabindex="0" title="编辑个人资料"' : "";
     return '<div class="lobby-seat ' + (seat.ready ? "ready " : "") + (seat.connected ? "" : "offline") + '"' + profileEntry + ">" +
-      '<div class="avatar">' + avatarInner(seat.id, seat.name) + "</div>" +
+      '<div class="avatar">' + avatarHtml(seat.id, seat.name) + "</div>" +
       '<div style="min-width:0"><div class="seat-name">' + esc(seat.name) + "</div>" +
       '<div class="seat-sub">' + (tags.join(" · ") || "玩家") + (seat.connected ? "" : " · 离线") + (seat.ready ? " · 已准备" : " · 未准备") + "</div></div>" + kick + "</div>";
   }).join("");
@@ -364,7 +371,7 @@ function renderGame() {
     if (selectableSeat(player.id)) classes.push("selectable");
     if (p.currentPlayerId === player.id) classes.push("me");
     return '<button class="' + classes.join(" ") + '" data-seat="' + player.id + '">' +
-      '<div class="avatar">' + avatarInner(player.id, player.name) + "</div>" +
+      '<div class="avatar">' + avatarHtml(player.id, player.name) + "</div>" +
       '<div class="seat-name">' + esc(player.name) + "</div>" +
       '<div class="seat-meta"><span>手牌 <b>' + player.handCount + "</b></span><span>指控 <b>" + player.accusations + "</b></span></div>" +
       '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? (t.kind === "witch" ? "witch" : t.kind === "constable" ? "constable" : "on") : "") + '"></span>').join("") + "</div>" +
@@ -374,7 +381,7 @@ function renderGame() {
   }).join("");
 
   $("selfPanel").innerHTML =
-    '<div class="avatar">' + avatarInner(S.seatId, seatName(S.seatId)) + "</div>" +
+    '<div class="avatar">' + avatarHtml(S.seatId, seatName(S.seatId)) + "</div>" +
     '<div class="self-main"><div class="self-name">' + esc(seatName(S.seatId)) + " · 你</div>" +
     '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div></div>" +
     '<div class="self-trials">' + trialChips({ trials: my.trials }) + "</div>";
@@ -641,7 +648,7 @@ function renderNight() {
   if (info.isWitch) {
     $("nightTargets").innerHTML = (S.projection?.seats ?? []).filter((s) => s.alive).map((s) =>
       '<button class="pick ' + (S.nightChoice.targetId === s.id ? "selected" : "") + '" data-night-target="' + s.id + '">' +
-      '<span class="avatar">' + avatarInner(s.id, s.name) + "</span><span>" + esc(s.name) + "</span></button>").join("");
+      '<span class="avatar">' + avatarHtml(s.id, s.name) + "</span><span>" + esc(s.name) + "</span></button>").join("");
   }
   $("nightHammerBlock").hidden = !info.isConstable;
   if (info.isConstable) {
@@ -649,7 +656,7 @@ function renderNight() {
     $("nightHammer").innerHTML =
       '<button class="pick ' + (S.nightChoice.hammerTargetId == null ? "selected" : "") + '" data-hammer="none">不使用木槌</button>' +
       options.map((s) => '<button class="pick ' + (S.nightChoice.hammerTargetId === s.id ? "selected" : "") + '" data-hammer="' + s.id + '">' +
-        '<span class="avatar">' + avatarInner(s.id, s.name) + "</span><span>" + esc(s.name) + "</span></button>").join("");
+        '<span class="avatar">' + avatarHtml(s.id, s.name) + "</span><span>" + esc(s.name) + "</span></button>").join("");
   }
   $("nightConfessBlock").hidden = !info.canConfess;
   $("confessCheck").checked = S.nightChoice.confess;
@@ -679,7 +686,7 @@ function renderDawn() {
   if (info.isWitch) {
     $("dawnTargets").innerHTML = (S.projection?.seats ?? []).filter((s) => s.alive).map((s) =>
       '<button class="pick ' + (S.dawnTarget === s.id ? "selected" : "") + '" data-dawn-target="' + s.id + '">' +
-      '<span class="avatar">' + avatarInner(s.id, s.name) + "</span><span>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</span></button>").join("");
+      '<span class="avatar">' + avatarHtml(s.id, s.name) + "</span><span>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</span></button>").join("");
   }
 }
 
@@ -690,7 +697,7 @@ function renderOver() {
   $("overRoles").innerHTML = (p?.seats ?? []).map((s) => {
     const kindClass = s.everWitch === true ? "witch" : "";
     return '<div class="over-role ' + kindClass + '">' +
-      '<div class="over-name"><span class="avatar">' + avatarInner(s.id, s.name) + "</span>" +
+      '<div class="over-name"><span class="avatar">' + avatarHtml(s.id, s.name) + "</span>" +
       "<b>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</b></div>" +
       esc(roleName(s.role)) + " · " + (s.alive ? "存活" : "死亡") + "<br />" + trialChips(s) + "</div>";
   }).join("");
@@ -734,12 +741,12 @@ function closeModal() {
 
 let profileDraft = null;
 
-function openProfileEntry() {
+function loadProfileEntry() {
   return selfSeat()?.name ?? ($("nameInput").value.trim() || profileStore.readName() || "");
 }
 
 function openProfile() {
-  const name0 = openProfileEntry();
+  const name0 = loadProfileEntry();
   const avatar0 = S.avatars?.[S.seatId] ?? profileStore.readAvatar();
   profileDraft = { name0, avatar0, avatar: avatar0 };
   $("profileName").value = name0;
@@ -761,7 +768,7 @@ function renderProfilePreview() {
   const box = $("profileAvatar");
   const avatar = profileDraft?.avatar ?? null;
   if (avatar) {
-    box.innerHTML = '<img src="' + esc(avatar) + '" alt="" />';
+    box.innerHTML = avatarImgHtml(avatar);
     return;
   }
   box.textContent = initialOf(cleanName($("profileName").value));
@@ -824,8 +831,7 @@ function saveProfile() {
   }
 
   if (!send(payload)) return;
-  if (payload.avatar === null) delete S.avatars[S.seatId];
-  else if (payload.avatar !== undefined) S.avatars[S.seatId] = payload.avatar;
+  if (payload.avatar !== undefined) applyLocalAvatar(S.seatId, payload.avatar);
   $("nameInput").value = name;
   closeProfile();
   toast("个人资料已更新", true);
@@ -853,76 +859,6 @@ function isAnimatedBytes(bytes) {
   return containsAscii(bytes, "acTL") || containsAscii(bytes, "ANIM") || containsAscii(bytes, "ANMF");
 }
 
-function exifOrientation(buffer) {
-  const view = new DataView(buffer);
-  if (view.byteLength < 4) return 1;
-  if (view.getUint8(0) !== 0xff || view.getUint8(1) !== 0xd8) return 1;
-  let offset = 2;
-  while (offset + 4 <= view.byteLength) {
-    if (view.getUint8(offset) !== 0xff) break;
-    const marker = view.getUint8(offset + 1);
-    if (marker === 0xda || marker === 0xd9) break;
-    const length = view.getUint16(offset + 2, false);
-    if (length < 2 || offset + 2 + length > view.byteLength) break;
-    if (marker === 0xe1 && offset + 10 <= view.byteLength) {
-      let isExif = true;
-      for (let i = 0; i < 6; i += 1) {
-        if (view.getUint8(offset + 4 + i) !== "Exif\0\0".charCodeAt(i)) isExif = false;
-      }
-      if (isExif) return readTiffOrientation(view, offset + 10);
-    }
-    offset += 2 + length;
-  }
-  return 1;
-}
-
-function readTiffOrientation(view, start) {
-  if (start + 8 > view.byteLength) return 1;
-  const first = view.getUint8(start);
-  const second = view.getUint8(start + 1);
-  const little = first === 0x49 && second === 0x49;
-  const big = first === 0x4d && second === 0x4d;
-  if (!little && !big) return 1;
-  const get16 = (at) => view.getUint16(at, little);
-  const ifd = start + view.getUint32(start + 4, little);
-  if (ifd + 2 > view.byteLength) return 1;
-  const count = get16(ifd);
-  for (let i = 0; i < count; i += 1) {
-    const entry = ifd + 2 + i * 12;
-    if (entry + 12 > view.byteLength) break;
-    if (get16(entry) === 0x0112) {
-      const value = get16(entry + 8);
-      return value >= 1 && value <= 8 ? value : 1;
-    }
-  }
-  return 1;
-}
-
-/** EXIF 方向对应的绘制变换：把原图坐标映射到「已摆正」的方向。 */
-function orientationMatrix(orientation, width, height) {
-  switch (orientation) {
-    case 2: return { a: -1, b: 0, c: 0, d: 1, e: width, f: 0 };
-    case 3: return { a: -1, b: 0, c: 0, d: -1, e: width, f: height };
-    case 4: return { a: 1, b: 0, c: 0, d: -1, e: 0, f: height };
-    case 5: return { a: 0, b: 1, c: 1, d: 0, e: 0, f: 0 };
-    case 6: return { a: 0, b: 1, c: -1, d: 0, e: height, f: 0 };
-    case 7: return { a: 0, b: -1, c: -1, d: 0, e: height, f: width };
-    case 8: return { a: 0, b: -1, c: 1, d: 0, e: 0, f: width };
-    default: return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-  }
-}
-
-function multiplyMatrix(m1, m2) {
-  return {
-    a: m1.a * m2.a + m1.c * m2.b,
-    b: m1.b * m2.a + m1.d * m2.b,
-    c: m1.a * m2.c + m1.c * m2.d,
-    d: m1.b * m2.c + m1.d * m2.d,
-    e: m1.a * m2.e + m1.c * m2.f + m1.e,
-    f: m1.b * m2.e + m1.d * m2.f + m1.f,
-  };
-}
-
 async function decodeAvatarSource(file) {
   if (typeof createImageBitmap === "function") {
     try {
@@ -931,9 +867,6 @@ async function decodeAvatarSource(file) {
         source: bitmap,
         width: bitmap.width,
         height: bitmap.height,
-        orientation: 1,
-        naturalWidth: bitmap.width,
-        naturalHeight: bitmap.height,
         release: () => bitmap.close?.(),
       };
     } catch {
@@ -948,17 +881,14 @@ async function decodeAvatarSource(file) {
       el.onerror = () => reject(new Error("decode"));
       el.src = url;
     });
-    const orientation = file.type === "image/jpeg" ? exifOrientation(await file.slice(0, 256 * 1024).arrayBuffer()) : 1;
+    // <img> 与 createImageBitmap 一样按图片自带方向摆正（现代浏览器都会），
+    // 所以这里不再自己读 EXIF 方向：再转一次会把竖拍照片转两遍。
     const naturalWidth = image.naturalWidth;
     const naturalHeight = image.naturalHeight;
-    const swapped = orientation >= 5;
     return {
       source: image,
-      width: swapped ? naturalHeight : naturalWidth,
-      height: swapped ? naturalWidth : naturalHeight,
-      orientation,
-      naturalWidth,
-      naturalHeight,
+      width: naturalWidth,
+      height: naturalHeight,
       release: () => URL.revokeObjectURL(url),
     };
   } catch (error) {
@@ -969,17 +899,23 @@ async function decodeAvatarSource(file) {
 
 function encodeAvatarCanvas(canvas, tier) {
   let over = false;
+  let pngOnly = false;
   for (const candidate of encodingCandidates(tier)) {
     const dataUrl = candidate.quality === undefined
       ? canvas.toDataURL(candidate.mime)
       : canvas.toDataURL(candidate.mime, candidate.quality);
     // canvas 对不支持的格式会静默回退 PNG，所以按返回串前缀确认，而不是按请求的 mime。
-    if (!isTargetAvatarDataUrl(dataUrl)) continue;
+    // 服务端只收 WebP / JPEG（规格明确不接受 PNG），拿到 PNG 就说明这个候选作废；
+    // 但如果浏览器对每种格式都只给 PNG，得给玩家一句准确的提示，而不是笼统的「读不出来」。
+    if (!isTargetAvatarDataUrl(dataUrl)) {
+      if (dataUrl.startsWith("data:image/png")) pngOnly = true;
+      continue;
+    }
     const verdict = budgetVerdict(estimateDataUrlBytes(dataUrl), AVATAR_BUDGET_BYTES);
     if (!verdict.over) return { ok: true, dataUrl };
     over = true;
   }
-  return { ok: false, over };
+  return { ok: false, over, pngOnly };
 }
 
 function renderAvatarTier(decoded, tier) {
@@ -991,10 +927,7 @@ function renderAvatarTier(decoded, tier) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return { ok: false, over: false };
   const scale = tier.edge / crop.size;
-  const cropMatrix = { a: scale, b: 0, c: 0, d: scale, e: -crop.sx * scale, f: -crop.sy * scale };
-  const base = orientationMatrix(decoded.orientation, decoded.naturalWidth, decoded.naturalHeight);
-  const matrix = multiplyMatrix(cropMatrix, base);
-  ctx.setTransform(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+  ctx.setTransform(scale, 0, 0, scale, -crop.sx * scale, -crop.sy * scale);
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(decoded.source, 0, 0);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1021,10 +954,13 @@ async function prepareAvatarFile(file) {
   try {
     const regular = renderAvatarTier(decoded, AVATAR_REGULAR_TIER);
     if (regular.ok) return regular;
-    if (!regular.over) return { ok: false, message: "这张图片格式无法读取，试试截图后再选。" };
-    const downscaled = renderAvatarTier(decoded, AVATAR_DOWNSCALED_TIER);
+    const downscaled = regular.over ? renderAvatarTier(decoded, AVATAR_DOWNSCALED_TIER) : regular;
     if (downscaled.ok) return downscaled;
-    return { ok: false, message: "这张图片太大了，换一张小一点的图。" };
+    if (downscaled.over) return { ok: false, message: "这张图片太大了，换一张小一点的图。" };
+    if (downscaled.pngOnly || regular.pngOnly) {
+      return { ok: false, message: "这个浏览器存不出可用的头像格式，换一张图或者换个浏览器试试。" };
+    }
+    return { ok: false, message: "这张图片格式无法读取，试试截图后再选。" };
   } finally {
     decoded.release();
   }

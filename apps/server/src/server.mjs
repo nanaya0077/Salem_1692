@@ -66,13 +66,28 @@ function checkAvatar(value) {
   if (typeof value !== "string") return invalid;
   const prefix = AVATAR_PREFIXES.find((p) => value.startsWith(p));
   if (!prefix) return invalid;
-  const bytes = Buffer.from(value.slice(prefix.length), "base64");
+  const payload = value.slice(prefix.length);
+  // 先看 base64 串长再看解码后字节：省掉一次白解码，也避免超大串先占一份内存。
+  if (payload.length > Math.ceil((AVATAR_MAX_BYTES / 3) * 4) + 4) {
+    return { ok: false, reason: "avatar-too-large", message: "这张图片太大了，换一张小一点的" };
+  }
+  const bytes = Buffer.from(payload, "base64");
   if (!bytes.length) return invalid;
   if (bytes.length > AVATAR_MAX_BYTES) return { ok: false, reason: "avatar-too-large", message: "这张图片太大了，换一张小一点的" };
   const magicOk = prefix === AVATAR_PREFIXES[0]
     ? bytes.length >= 12 && bytes.toString("latin1", 0, 4) === "RIFF" && bytes.toString("latin1", 8, 12) === "WEBP"
     : bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   return magicOk ? { ok: true } : invalid;
+}
+
+/**
+ * 座位名与对局状态里的玩家名必须一起写：投影里的座位名取自后者，只写一处会让新旧名字并存。
+ * 改名与重连改名都走这里。
+ */
+function applySeatName(room, seat, nextName) {
+  seat.name = nextName;
+  const player = room.game?.players?.[seat.id];
+  if (player) player.name = nextName;
 }
 
 /**
@@ -98,21 +113,19 @@ function applyProfile(room, seat, message) {
     }
   }
 
-  const nextName = typeof message.name === "string" ? safeName(message.name) : null;
-  const oldName = nextName !== null && nextName !== seat.name ? seat.name : null;
+  const requestedName = typeof message.name === "string" ? safeName(message.name) : null;
+  const renaming = requestedName !== null && requestedName !== seat.name;
+
+  // 没变化的写入不落库，也就不占硬闸；只有真正写进去的东西才刷新窗口。
+  if (!avatarChanged && !renaming) return;
 
   seat.profileAt = now;
   seat.avatar = nextAvatar;
-  if (oldName !== null) {
-    seat.name = nextName;
-    // 投影里的座位名取自对局状态里的玩家，两处必须一起写，否则新旧名字并存。
-    const player = room.game?.players?.[seat.id];
-    if (player) player.name = nextName;
-  }
-
-  if (oldName !== null) {
+  if (renaming) {
+    const oldName = seat.name;
+    applySeatName(room, seat, requestedName);
     sync(room);
-    broadcast(room, { type: "notice", message: "「" + oldName + "」改名为「" + nextName + "」" });
+    broadcast(room, { type: "notice", message: "「" + oldName + "」改名为「" + requestedName + "」" });
   }
   if (avatarChanged) broadcast(room, { type: "avatar", seatId: seat.id, dataUrl: nextAvatar });
 }
@@ -539,7 +552,8 @@ function joinRoom(ws, code, name, token) {
     existing.ws = ws;
     existing.connected = true;
     markSeatConnected(room, existing);
-    existing.name = name ? safeName(name) : existing.name;
+    // 重连也能改昵称：和 profile 的改名走同一条双写，否则投影里还是旧名。
+    if (name) applySeatName(room, existing, safeName(name));
     send(ws, { type: "welcome", code: room.code, seatId: existing.id, token, reconnected: true, avatars: avatarMap(room) });
     sync(room);
     return;
