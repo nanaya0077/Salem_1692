@@ -8,7 +8,7 @@ import {
   isTargetAvatarDataUrl,
   squareCropRect,
 } from "./avatar-normalize.js";
-import { cleanName, createProfileStore } from "./profile-store.js";
+import { cleanName, createProfileStore, initialOf } from "./profile-store.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -100,6 +100,17 @@ function seatName(id) {
   if (fromRoom) return fromRoom.name;
   const fromProjection = S.projection?.seats?.find((s) => s.id === id);
   return fromProjection?.name ?? "玩家 " + id;
+}
+
+// 头像位内容：这个座位有头像就给圆形 <img>，没有就回落到昵称首字。
+// 每次重绘都按 S.avatars 现算、不缓存 <img> 节点：设头像、换头像、移除头像
+// 都在下一次 render 的同一帧里对全部展示面生效，不会留下旧图或空位。
+function avatarInner(seatId, name) {
+  const dataUrl = S.avatars?.[seatId];
+  if (typeof dataUrl === "string" && dataUrl) {
+    return '<img src="' + esc(dataUrl) + '" alt="" />';
+  }
+  return esc(initialOf(name));
 }
 
 function isSelf(id) {
@@ -201,6 +212,9 @@ function handle(msg) {
       if (!S.avatars) S.avatars = {};
       if (msg.dataUrl) S.avatars[msg.seatId] = msg.dataUrl;
       else delete S.avatars[msg.seatId];
+      // 头像只是一个人的属性，服务端不 sync 房间，得自己重绘，
+      // 这样七处展示面（含移除后的回落）在同一帧里一起换掉。
+      render();
       break;
     case "room":
       S.room = msg.room;
@@ -281,7 +295,7 @@ function renderLobby() {
       : "";
     const profileEntry = isMe ? ' data-profile="self" role="button" tabindex="0" title="编辑个人资料"' : "";
     return '<div class="lobby-seat ' + (seat.ready ? "ready " : "") + (seat.connected ? "" : "offline") + '"' + profileEntry + ">" +
-      '<div class="avatar">' + esc(seat.name.slice(0, 1)) + "</div>" +
+      '<div class="avatar">' + avatarInner(seat.id, seat.name) + "</div>" +
       '<div style="min-width:0"><div class="seat-name">' + esc(seat.name) + "</div>" +
       '<div class="seat-sub">' + (tags.join(" · ") || "玩家") + (seat.connected ? "" : " · 离线") + (seat.ready ? " · 已准备" : " · 未准备") + "</div></div>" + kick + "</div>";
   }).join("");
@@ -350,7 +364,7 @@ function renderGame() {
     if (selectableSeat(player.id)) classes.push("selectable");
     if (p.currentPlayerId === player.id) classes.push("me");
     return '<button class="' + classes.join(" ") + '" data-seat="' + player.id + '">' +
-      '<div class="avatar">' + esc(player.name.slice(0, 1)) + "</div>" +
+      '<div class="avatar">' + avatarInner(player.id, player.name) + "</div>" +
       '<div class="seat-name">' + esc(player.name) + "</div>" +
       '<div class="seat-meta"><span>手牌 <b>' + player.handCount + "</b></span><span>指控 <b>" + player.accusations + "</b></span></div>" +
       '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? (t.kind === "witch" ? "witch" : t.kind === "constable" ? "constable" : "on") : "") + '"></span>').join("") + "</div>" +
@@ -360,7 +374,7 @@ function renderGame() {
   }).join("");
 
   $("selfPanel").innerHTML =
-    '<div class="avatar">' + esc(seatName(S.seatId).slice(0, 1)) + "</div>" +
+    '<div class="avatar">' + avatarInner(S.seatId, seatName(S.seatId)) + "</div>" +
     '<div class="self-main"><div class="self-name">' + esc(seatName(S.seatId)) + " · 你</div>" +
     '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div></div>" +
     '<div class="self-trials">' + trialChips({ trials: my.trials }) + "</div>";
@@ -627,7 +641,7 @@ function renderNight() {
   if (info.isWitch) {
     $("nightTargets").innerHTML = (S.projection?.seats ?? []).filter((s) => s.alive).map((s) =>
       '<button class="pick ' + (S.nightChoice.targetId === s.id ? "selected" : "") + '" data-night-target="' + s.id + '">' +
-      '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + "</span></button>").join("");
+      '<span class="avatar">' + avatarInner(s.id, s.name) + "</span><span>" + esc(s.name) + "</span></button>").join("");
   }
   $("nightHammerBlock").hidden = !info.isConstable;
   if (info.isConstable) {
@@ -635,7 +649,7 @@ function renderNight() {
     $("nightHammer").innerHTML =
       '<button class="pick ' + (S.nightChoice.hammerTargetId == null ? "selected" : "") + '" data-hammer="none">不使用木槌</button>' +
       options.map((s) => '<button class="pick ' + (S.nightChoice.hammerTargetId === s.id ? "selected" : "") + '" data-hammer="' + s.id + '">' +
-        '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + "</span></button>").join("");
+        '<span class="avatar">' + avatarInner(s.id, s.name) + "</span><span>" + esc(s.name) + "</span></button>").join("");
   }
   $("nightConfessBlock").hidden = !info.canConfess;
   $("confessCheck").checked = S.nightChoice.confess;
@@ -665,7 +679,7 @@ function renderDawn() {
   if (info.isWitch) {
     $("dawnTargets").innerHTML = (S.projection?.seats ?? []).filter((s) => s.alive).map((s) =>
       '<button class="pick ' + (S.dawnTarget === s.id ? "selected" : "") + '" data-dawn-target="' + s.id + '">' +
-      '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</span></button>").join("");
+      '<span class="avatar">' + avatarInner(s.id, s.name) + "</span><span>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</span></button>").join("");
   }
 }
 
@@ -675,7 +689,9 @@ function renderOver() {
   $("overReason").textContent = p?.winnerReason ?? "";
   $("overRoles").innerHTML = (p?.seats ?? []).map((s) => {
     const kindClass = s.everWitch === true ? "witch" : "";
-    return '<div class="over-role ' + kindClass + '"><b>' + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</b>" +
+    return '<div class="over-role ' + kindClass + '">' +
+      '<div class="over-name"><span class="avatar">' + avatarInner(s.id, s.name) + "</span>" +
+      "<b>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</b></div>" +
       esc(roleName(s.role)) + " · " + (s.alive ? "存活" : "死亡") + "<br />" + trialChips(s) + "</div>";
   }).join("");
 }
@@ -748,7 +764,7 @@ function renderProfilePreview() {
     box.innerHTML = '<img src="' + esc(avatar) + '" alt="" />';
     return;
   }
-  box.textContent = cleanName($("profileName").value).slice(0, 1);
+  box.textContent = initialOf(cleanName($("profileName").value));
 }
 
 function warnQuotaOnce() {
