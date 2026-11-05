@@ -1,0 +1,11 @@
+# 运行时只用到 apps/server、apps/web、assets 与 packages/rules
+.git
+.github
+node_modules
+**/node_modules
+docs/rules
+apps/web/.verify
+**/__pycache__
+*.log
+.DS_Store
+Thumbs.db
