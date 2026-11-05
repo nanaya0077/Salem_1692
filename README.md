@@ -45,6 +45,7 @@ CODE=房码 BOTS=3 BASE=http://127.0.0.1:8101 node apps/server/test/bots.mjs
 cd packages/rules && node --test test/*.test.ts
 cd packages/rules && SOAK_SEEDS=300 node --test test/soak.test.ts
 node --check apps/web/app.js
+cd apps/web && node --test test/*.test.js
 node apps/server/test/smoke.mjs
 node apps/server/test/lifecycle.mjs
 BASE=http://127.0.0.1:8080 node apps/server/test/bots_add.mjs

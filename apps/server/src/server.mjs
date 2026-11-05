@@ -33,6 +33,27 @@ const NIGHT_MS = Number(process.env.NIGHT_MS || 30000);
 const DAWN_MS = Number(process.env.DAWN_MS || 45000);
 const TURN_MS = Number(process.env.TURN_MS || 90000);
 const GRACE_MS = Number(process.env.GRACE_MS || 60000);
+/** 同一座位的资料写入硬闸：1 秒内只认第一笔，超频静默丢弃。 */
+const PROFILE_GATE_MS = 1000;
+/** 头像解码后的字节上限。超限整条拒绝，不截断也不降采样。 */
+const AVATAR_MAX_BYTES = 96 * 1024;
+/** base64 最长长度：每 3 字节编成 4 个字符，先按字符串长度挡一道，省得白解码。 */
+const AVATAR_MAX_BASE64 = Math.ceil(AVATAR_MAX_BYTES / 3) * 4;
+/**
+ * 只认 WebP 与 JPEG 的 data URL。头一个字段就能判断格式，接着用 magic bytes 确认，
+ * 免得客户端把别的格式套个 image/webp 的壳递进来。
+ */
+const AVATAR_TYPES = [
+  {
+    prefix: "data:image/webp;base64,",
+    magic: (buf) =>
+      buf.length >= 12 && buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP",
+  },
+  {
+    prefix: "data:image/jpeg;base64,",
+    magic: (buf) => buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff,
+  },
+];
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /** @typedef {"lobby"|"dawn"|"playing"|"night"|"over"} RoomPhase */
@@ -109,6 +130,84 @@ function broadcast(room, message, exceptSeat = null) {
 
 function seatOf(room, id) {
   return room.seats.find((s) => s.id === id) ?? null;
+}
+
+/**
+ * 昵称写在两个地方：座位自己的名字，以及该玩家在对局状态里的名字。
+ * 投影里的座位名取自后者，只写一处会新旧并存。规则逻辑不读名字，所以中途改是安全的。
+ * 返回 null 表示名字没变。
+ */
+function applySeatName(room, seat, rawName) {
+  const next = safeName(rawName);
+  if (next === seat.name) return null;
+  const before = seat.name;
+  seat.name = next;
+  const player = room.game?.players?.[seat.id];
+  if (player) player.name = next;
+  return { before, after: next };
+}
+
+function broadcastRename(room, before, after) {
+  if (!before) return;
+  broadcast(room, { type: "notice", message: `「${before}」改名为「${after}」` });
+}
+
+/**
+ * 校验头像 data URL。返回 {dataUrl} 表示可用，否则 {reason, message} 面向玩家。
+ * 顺序：前缀 → 字符串长度（挡明显超限）→ 解码 → 字节长度 → magic bytes。
+ */
+function parseAvatar(raw) {
+  const invalid = { reason: "avatar-invalid", message: "这张图片读不出来，换一张试试" };
+  if (typeof raw !== "string") return invalid;
+  const type = AVATAR_TYPES.find((t) => raw.startsWith(t.prefix));
+  if (!type) return invalid;
+  const body = raw.slice(type.prefix.length);
+  if (body.length > AVATAR_MAX_BASE64) {
+    return { reason: "avatar-too-large", message: "这张图片太大了，换一张小一点的" };
+  }
+  const buf = Buffer.from(body, "base64");
+  if (buf.length === 0) return invalid;
+  if (buf.length > AVATAR_MAX_BYTES) {
+    return { reason: "avatar-too-large", message: "这张图片太大了，换一张小一点的" };
+  }
+  if (!type.magic(buf)) return invalid;
+  return { dataUrl: raw };
+}
+
+/** 全量头像 {seatId: dataUrl}：只出设过头像的座位。 */
+function avatarsOf(room) {
+  const out = {};
+  for (const seat of room.seats) {
+    if (seat.avatar) out[String(seat.id)] = seat.avatar;
+  }
+  return out;
+}
+
+/**
+ * 个人资料写入。身份只来自连接自身的座位归属，消息里任何座位字段都不作数，因此只能改自己。
+ * 1 秒硬闸：闸内的第二笔静默丢弃（不报错、不提示）。
+ * 一条消息里的昵称与头像一起校验：任一不合法就整条拒绝，什么都不改。
+ */
+function handleProfile(room, seat, message) {
+  if (!seat) return;
+  const now = Date.now();
+  if (seat.profileAt !== undefined && now - seat.profileAt < PROFILE_GATE_MS) return;
+  const wantsAvatar = message.avatar !== undefined;
+  let nextAvatar = null;
+  if (wantsAvatar && message.avatar !== null) {
+    const parsed = parseAvatar(message.avatar);
+    if (parsed.reason) return sendError(seat.ws, parsed.message, parsed.reason);
+    nextAvatar = parsed.dataUrl;
+  }
+  const rename = message.name === undefined || message.name === null ? null : applySeatName(room, seat, message.name);
+  const avatarChanged = wantsAvatar && nextAvatar !== (seat.avatar ?? null);
+  if (!rename && !avatarChanged) return;
+  seat.profileAt = now;
+  if (avatarChanged) seat.avatar = nextAvatar;
+  if (rename) broadcastRename(room, rename.before, rename.after);
+  // 头像单独一条消息，发全房间（含本人，客户端靠它确认写入结果）；不进 room，所以不必重投影。
+  if (avatarChanged) broadcast(room, { type: "avatar", seatId: seat.id, dataUrl: nextAvatar });
+  if (rename) sync(room);
 }
 
 function aliveWitches(game) {
@@ -404,7 +503,7 @@ function initRoom(room, ws, seat, token) {
   ws.meta = { code: room.code, seatId: seat.id };
   seat.ws = ws;
   seat.connected = true;
-  send(ws, { type: "welcome", code: room.code, seatId: seat.id, token });
+  send(ws, { type: "welcome", code: room.code, seatId: seat.id, token, avatars: avatarsOf(room) });
   sync(room);
 }
 
@@ -469,8 +568,18 @@ function joinRoom(ws, code, name, token) {
     existing.ws = ws;
     existing.connected = true;
     markSeatConnected(room, existing);
-    existing.name = name ? safeName(name) : existing.name;
-    send(ws, { type: "welcome", code: room.code, seatId: existing.id, token, reconnected: true });
+    if (name) {
+      const renamed = applySeatName(room, existing, name);
+      if (renamed) broadcastRename(room, renamed.before, renamed.after);
+    }
+    send(ws, {
+      type: "welcome",
+      code: room.code,
+      seatId: existing.id,
+      token,
+      reconnected: true,
+      avatars: avatarsOf(room),
+    });
     sync(room);
     return;
   }
@@ -753,6 +862,7 @@ function handleMessage(ws, raw) {
   const seat = seatOf(room, meta.seatId);
   if (!seat) return sendError(ws, "座位不存在", "no-seat");
   room.updatedAt = Date.now();
+  if (type === "profile") return handleProfile(room, seat, message);
   if (type === "ready") {
     if (room.phase !== "lobby") return sendError(ws, "对局已开始", "not-lobby");
     seat.ready = Boolean(message.ready);
