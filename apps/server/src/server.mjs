@@ -14,6 +14,7 @@ import {
   drawTwo,
   effectiveRole,
   endTurn,
+  finishDeal,
   project,
   playCard,
   resolveNight,
@@ -698,14 +699,14 @@ function startGameFromLobby(room, seatId) {
   }
   normalizeSeatIds(room);
   try {
-    room.game = createGame(
+    // 发牌相位暂由服务端立即落定，角色确认与超时兜底见 #10。
+    room.game = finishDeal(createGame(
       { playerCount: room.seats.length, ...room.config },
       {
         names: room.seats.map((s) => s.name),
-        autoStart: false,
         seed: randomBytes(4).readUInt32LE(0),
       },
-    );
+    ));
   } catch (error) {
     return sendError(seatOf(room, seatId)?.ws, String(error.message || error), "start-failed");
   }
