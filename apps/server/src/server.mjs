@@ -34,6 +34,9 @@ const DAWN_MS = Number(process.env.DAWN_MS || 45000);
 const TURN_MS = Number(process.env.TURN_MS || 90000);
 const GRACE_MS = Number(process.env.GRACE_MS || 60000);
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const AVATAR_PREFIXES = ["data:image/webp;base64,", "data:image/jpeg;base64,"];
+const AVATAR_MAX_BYTES = 96 * 1024;
+const PROFILE_MIN_MS = 1000;
 
 /** @typedef {"lobby"|"dawn"|"playing"|"night"|"over"} RoomPhase */
 
@@ -47,6 +50,71 @@ function log(...args) {
 function safeName(raw) {
   const s = String(raw ?? "").replace(/[\u0000-\u001f<>]/g, "").trim();
   return (s || "玩家").slice(0, 16);
+}
+
+function avatarMap(room) {
+  const map = {};
+  for (const seat of room.seats) {
+    if (seat.avatar) map[seat.id] = seat.avatar;
+  }
+  return map;
+}
+
+/** 头像只认 WebP / JPEG 的 data URL：前缀、magic bytes、解码后体积三道校验，超限直接拒绝。 */
+function checkAvatar(value) {
+  const invalid = { ok: false, reason: "avatar-invalid", message: "这张图片读不出来" };
+  if (typeof value !== "string") return invalid;
+  const prefix = AVATAR_PREFIXES.find((p) => value.startsWith(p));
+  if (!prefix) return invalid;
+  const bytes = Buffer.from(value.slice(prefix.length), "base64");
+  if (!bytes.length) return invalid;
+  if (bytes.length > AVATAR_MAX_BYTES) return { ok: false, reason: "avatar-too-large", message: "这张图片太大了，换一张小一点的" };
+  const magicOk = prefix === AVATAR_PREFIXES[0]
+    ? bytes.length >= 12 && bytes.toString("latin1", 0, 4) === "RIFF" && bytes.toString("latin1", 8, 12) === "WEBP"
+    : bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  return magicOk ? { ok: true } : invalid;
+}
+
+/**
+ * 座位级个人资料。只认连接自身的座位归属（消息里的 seatId 一律忽略），因此只能改自己。
+ * 校验全过才落状态：非法输入不会留下半截改动。
+ */
+function applyProfile(room, seat, message) {
+  const now = Date.now();
+  // 同一座位的资料写入有 1 秒硬闸，超频静默丢弃：不报错、不广播、不改状态。
+  if (seat.profileAt && now - seat.profileAt < PROFILE_MIN_MS) return;
+
+  let nextAvatar = seat.avatar ?? null;
+  let avatarChanged = false;
+  if (message.avatar !== undefined) {
+    if (message.avatar === null) {
+      avatarChanged = nextAvatar !== null;
+      nextAvatar = null;
+    } else {
+      const verdict = checkAvatar(message.avatar);
+      if (!verdict.ok) return sendError(seat.ws, verdict.message, verdict.reason);
+      avatarChanged = seat.avatar !== message.avatar;
+      nextAvatar = message.avatar;
+    }
+  }
+
+  const nextName = typeof message.name === "string" ? safeName(message.name) : null;
+  const oldName = nextName !== null && nextName !== seat.name ? seat.name : null;
+
+  seat.profileAt = now;
+  seat.avatar = nextAvatar;
+  if (oldName !== null) {
+    seat.name = nextName;
+    // 投影里的座位名取自对局状态里的玩家，两处必须一起写，否则新旧名字并存。
+    const player = room.game?.players?.[seat.id];
+    if (player) player.name = nextName;
+  }
+
+  if (oldName !== null) {
+    sync(room);
+    broadcast(room, { type: "notice", message: "「" + oldName + "」改名为「" + nextName + "」" });
+  }
+  if (avatarChanged) broadcast(room, { type: "avatar", seatId: seat.id, dataUrl: nextAvatar });
 }
 
 function newCode() {
@@ -340,6 +408,7 @@ function addBot(room, seatId) {
     ready: true,
     connected: true,
     bot: true,
+    avatar: null,
     joinedAt: Date.now(),
   };
   room.seats.push(seat);
@@ -404,7 +473,7 @@ function initRoom(room, ws, seat, token) {
   ws.meta = { code: room.code, seatId: seat.id };
   seat.ws = ws;
   seat.connected = true;
-  send(ws, { type: "welcome", code: room.code, seatId: seat.id, token });
+  send(ws, { type: "welcome", code: room.code, seatId: seat.id, token, avatars: avatarMap(room) });
   sync(room);
 }
 
@@ -419,6 +488,7 @@ function createRoom(ws, name, configInput) {
     ready: true,
     connected: true,
     ws,
+    avatar: null,
     joinedAt: Date.now(),
   };
   const room = {
@@ -470,7 +540,7 @@ function joinRoom(ws, code, name, token) {
     existing.connected = true;
     markSeatConnected(room, existing);
     existing.name = name ? safeName(name) : existing.name;
-    send(ws, { type: "welcome", code: room.code, seatId: existing.id, token, reconnected: true });
+    send(ws, { type: "welcome", code: room.code, seatId: existing.id, token, reconnected: true, avatars: avatarMap(room) });
     sync(room);
     return;
   }
@@ -486,6 +556,7 @@ function joinRoom(ws, code, name, token) {
     ready: false,
     connected: true,
     ws,
+    avatar: null,
     joinedAt: Date.now(),
   };
   initRoom(room, ws, seat, fresh);
@@ -789,6 +860,7 @@ function handleMessage(ws, raw) {
   }
   if (type === "add-bot") return addBot(room, seat.id);
   if (type === "start") return startGameFromLobby(room, seat.id);
+  if (type === "profile") return applyProfile(room, seat, message);
   if (type === "action") return handleAction(room, seat.id, message.action, message.commandId);
   if (type === "chat") {
     const text = String(message.text ?? "").slice(0, 200).trim();
