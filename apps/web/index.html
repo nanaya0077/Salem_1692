@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#160f0c" />
+  <meta name="description" content="《女巫镇》4–12 人实时在线版" />
+  <title>女巫镇 · 在线版</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <section id="landing" class="screen landing">
+      <div class="landing-mark" aria-hidden="true">1692</div>
+      <h1>女巫镇</h1>
+      <p class="subtitle">SALEM 1692 · 4–12 人在线版</p>
+      <div class="panel landing-panel">
+        <label class="field">
+          <span>你的昵称</span>
+          <input id="nameInput" maxlength="16" autocomplete="nickname" placeholder="例如：阿比盖尔" />
+        </label>
+        <button id="createBtn" class="btn primary big">创建房间</button>
+        <div class="or"><span>或加入朋友的房间</span></div>
+        <div class="join-row">
+          <input id="codeInput" maxlength="6" inputmode="text" autocapitalize="characters" placeholder="6 位房码" />
+          <button id="joinBtn" class="btn">加入</button>
+        </div>
+        <p id="landingError" class="error" role="alert"></p>
+      </div>
+      <p class="fineprint">朋友房 · 游客昵称即开 · 手机竖屏优先<br />外置语音 + 局内快捷语</p>
+    </section>
+
+    <section id="lobby" class="screen lobby" hidden>
+      <header class="topbar">
+        <button id="leaveLobby" class="icon-btn" title="离开">←</button>
+        <div>
+          <div class="eyebrow">房间码</div>
+          <div id="roomCode" class="room-code">------</div>
+        </div>
+        <button id="copyLink" class="icon-btn" title="复制邀请链接">⧉</button>
+      </header>
+      <div class="lobby-body">
+        <div class="panel">
+          <div class="section-head">
+            <h2>在座 <span id="seatCount">0/12</span></h2>
+            <div class="head-actions">
+              <span id="hostHint" class="muted"></span>
+              <button id="addBotBtn" class="btn tiny ghost" hidden>＋ 机器人</button>
+            </div>
+          </div>
+          <div id="lobbySeats" class="lobby-seats"></div>
+        </div>
+        <div class="panel">
+          <div class="section-head"><h2>开局配置</h2><span class="muted">房主可改</span></div>
+          <div class="config-grid">
+            <label class="field compact">
+              <span>女巫数</span>
+              <input id="witchCount" type="number" min="1" max="11" inputmode="numeric" />
+            </label>
+            <label class="field compact">
+              <span>每人身份卡</span>
+              <input id="cardsPerPlayer" type="number" min="2" max="8" inputmode="numeric" />
+            </label>
+          </div>
+          <p id="configHint" class="hint"></p>
+          <button id="applyConfig" class="btn small">应用配置</button>
+        </div>
+        <div class="lobby-actions">
+          <button id="readyBtn" class="btn primary">准备</button>
+          <button id="startBtn" class="btn gold" disabled>开始游戏</button>
+        </div>
+        <p class="fineprint">4 人起开。建议 6–8 人；12 人局每人 3 张身份卡。</p>
+      </div>
+    </section>
+
+    <section id="game" class="screen game" hidden>
+      <header class="game-top">
+        <div class="turn-badge" id="turnBadge">等待</div>
+        <div class="pile-stats">
+          <span title="牌堆">牌堆 <b id="deckCount">0</b></span>
+          <span title="弃牌堆">弃牌 <b id="discardCount">0</b></span>
+        </div>
+        <button id="logBtn" class="icon-btn" title="日志">≡</button>
+      </header>
+
+      <div id="targetBanner" class="target-banner" hidden>
+        <span id="targetText"></span>
+        <button id="cancelTarget" class="btn tiny ghost">取消</button>
+      </div>
+
+      <main class="table-wrap">
+        <div id="opponents" class="opponents"></div>
+        <div class="center-table">
+          <div class="center-sigil">1692</div>
+          <div id="phaseText" class="phase-text">等待开局</div>
+          <div id="centerHint" class="center-hint"></div>
+        </div>
+        <div id="selfPanel" class="self-panel"></div>
+        <div id="hand" class="hand" aria-label="手牌"></div>
+        <div id="actionBar" class="action-bar"></div>
+      </main>
+
+      <div id="logDrawer" class="drawer" hidden>
+        <div class="drawer-head"><h2>事件</h2><button id="closeLog" class="icon-btn">×</button></div>
+        <div id="logList" class="log-list"></div>
+      </div>
+
+      <div id="nightOverlay" class="overlay night" hidden>
+        <div class="night-sky" aria-hidden="true"></div>
+        <div class="overlay-card">
+          <div class="eyebrow">NIGHT</div>
+          <h2>夜晚降临</h2>
+          <p id="nightPrompt" class="overlay-lead"></p>
+          <div id="nightTimer" class="timer"></div>
+          <div id="nightKillBlock" class="overlay-block" hidden>
+            <h3>选择夜杀目标</h3>
+            <div id="nightTargets" class="pick-grid"></div>
+          </div>
+          <div id="nightHammerBlock" class="overlay-block" hidden>
+            <h3>治安官：木槌赦免</h3>
+            <div id="nightHammer" class="pick-grid"></div>
+          </div>
+          <div id="nightConfessBlock" class="overlay-block" hidden>
+            <label class="check-line"><input id="confessCheck" type="checkbox" /> 自首：翻开 1 张身份卡，换取今夜免疫</label>
+          </div>
+          <div id="nightWilliamBlock" class="overlay-block" hidden>
+            <label class="check-line"><input id="williamCheck" type="checkbox" /> 威廉·菲普斯：不翻牌获得今夜免疫（每局一次）</label>
+            <p class="muted small">与自首二选一；仍可正常选择夜杀目标。</p>
+          </div>
+          <button id="submitNight" class="btn primary big">提交夜晚选择</button>
+          <p id="nightWaiting" class="muted" hidden>已提交，等待其他玩家……</p>
+        </div>
+      </div>
+
+      <div id="dawnOverlay" class="overlay dawn" hidden>
+        <div class="overlay-card">
+          <div class="eyebrow">DAWN</div>
+          <h2>黎明</h2>
+          <p id="dawnPrompt" class="overlay-lead"></p>
+          <div id="dawnTimer" class="timer"></div>
+          <div id="dawnBlock" class="overlay-block" hidden>
+            <h3>女巫：黑猫放给谁？</h3>
+            <div id="dawnTargets" class="pick-grid"></div>
+          </div>
+          <button id="submitDawn" class="btn primary big" hidden>放下黑猫</button>
+          <p id="dawnWaiting" class="muted" hidden>等待女巫……</p>
+        </div>
+      </div>
+
+      <div id="overOverlay" class="overlay over" hidden>
+        <div class="overlay-card">
+          <div class="eyebrow">GAME OVER</div>
+          <h2 id="overTitle">对局结束</h2>
+          <p id="overReason" class="overlay-lead"></p>
+          <div id="overRoles" class="over-roles"></div>
+          <button id="backLobby" class="btn primary big">返回大厅</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="cardModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-modal></div>
+      <div class="card-detail" role="dialog" aria-modal="true">
+        <button class="modal-close" data-close-modal>×</button>
+        <img id="detailImage" alt="" />
+        <div class="card-copy">
+          <div class="card-kicker" id="detailKicker"></div>
+          <h2 id="detailTitle"></h2>
+          <p id="detailText"></p>
+        </div>
+        <div class="card-actions">
+          <button id="playCardBtn" class="btn primary">打出</button>
+          <button id="playWitnessBtn" class="btn gold" hidden>作为目击打出</button>
+          <button id="playAbigailBtn" class="btn gold" hidden>打出并弃红卡（阿比盖尔）</button>
+          <button class="btn ghost" data-close-modal>关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="powerOverlay" class="modal" hidden>
+      <div class="modal-backdrop" data-close-power></div>
+      <div class="card-detail power-panel" role="dialog" aria-modal="true">
+        <button class="modal-close" data-close-power>×</button>
+        <div class="card-copy">
+          <div class="card-kicker" id="powerKicker"></div>
+          <h2 id="powerTitle"></h2>
+          <p id="powerText"></p>
+        </div>
+        <div id="powerList" class="power-list"></div>
+        <div class="card-actions">
+          <button id="powerConfirm" class="btn primary">确认</button>
+          <button class="btn ghost" data-close-power>取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="chatBar" class="chat-bar" hidden>
+      <input id="chatInput" maxlength="120" placeholder="快捷语/文字…" />
+      <button id="chatSend" class="icon-btn" title="发送">➤</button>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

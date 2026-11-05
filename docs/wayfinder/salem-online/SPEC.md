@@ -14,20 +14,22 @@
 
 ### 1.1 规则与开局配置
 
-- 默认配比按中文旧版：4–9 人每人 5 张身份卡，10–12 人每人 3 张；女巫数默认 4:1、5:1、6:2、7:2、8:2、9:1、10:2、11:2、12:2；警长 1。注意 9 人是 1 女巫（第二版对照为 2），这是两版差异点。
-- 开局前可覆盖 `witchCount` 与 `identityCardsPerPlayer`；总身份卡数 = 人数 × 每人数量，必须 ≥ 女巫数 + 1。
+- 默认配比按中文旧版：女巫数 4:1、5:1、6:2、7:2、8:2、9:1、10:2、11:2、12:2；警长 1。注意 9 人是 1 女巫（第二版对照为 2），这是两版差异点。
+- 身份卡总数按官方表：20/25/30/35/32/35/30/33/36（4–12 人），**9 人 35 张无法均分**，实现为前 8 人 4 张、末位 3 张；8 人 32 张每人 4 张。`GameConfig.identityCardTotal` 是权威总数，`identityCardsPerPlayer` 只作展示与显式覆盖。
+- 开局前可覆盖 `witchCount` 与 `identityCardsPerPlayer`；显式覆盖时总数 = 人数 × 每人数量，否则沿用默认 `identityCardTotal`。总身份卡数必须 ≥ 女巫数 + 1。
 - 校验范围：人数 4–12；女巫数 1–人数-1；每人身份卡数 2–8；人数 × 每人数量必须够女巫 + 警长。
+- 阴谋边界：存活玩家把最后一张身份卡传给左邻、而自己的左邻已死时，会没有任何身份卡。规则书未覆盖此状态；实现按“无身份出局”（`playerDied cause:"no-trials"`）处理，避免永远无法再被指控的不死状态。
 - **信徒**：其他玩家不能对你打出红卡；嫁祸、医生等“移动红卡”的效果不受限。
 - **莎拉·古德**：对你打出的抢劫/纵火无效，并立刻丢弃该卡；作为抢劫去向时正常收牌。
 - 规则引擎实现见 `packages/rules`，测试命令 `cd packages/rules && node --test test/*.test.ts`。
 
 ## 2. 运行时架构
 
-- 客户端：TypeScript + React + Vite；移动优先 CSS，不引入重型 UI 框架；PWA manifest + service worker（仅壳与静态资源）。
-- 服务端：Node 22 + TypeScript + Colyseus（房间 actor + WebSocket）；MVP 单进程内存态，Redis 只用于多实例 presence（二期）。
-- 规则核心：`packages/rules`，纯 TypeScript、无 IO、无 React；导出 `GameState`、`Command`、`Event`、`reduce`、`project`。
-- 传输：WebSocket JSON；消息带 `schemaVersion`、`roomVersion`、`commandId`；服务端按 `commandId` 幂等。
-- 客户端只拿投影：公共态 + 自己的私密态；任何“全量房间态”不广播。
+- 客户端：原生 HTML/CSS/ES Module（`apps/web`），无构建步骤、无 React/Vite；移动优先 CSS；PWA manifest + service worker（壳与静态资源缓存）。
+- 服务端：Node 24（直接运行 `.mjs` 与 `.ts`，靠原生类型剥离）+ `ws` WebSocket，单进程内存态；HTTP 同时托管 `apps/web` 与 `/assets/*`，没有 Colyseus/Redis。
+- 规则核心：`packages/rules`，纯 TypeScript、无 IO、无 UI；导出 `GameState`、`createGame`、`drawTwo`、`playCard`、`endTurn`、`resolveNight`、`project`、`samuelTake`、`titubaReorder` 等命令函数。命令返回新状态，不原地改旧状态。
+- 传输：WebSocket JSON；客户端消息含 `type/commandId`，服务端按 `commandId` 去重；状态以 `projection` 全量投影下发，事件以 `events` 增量广播。
+- 客户端只拿投影：公共态 + 自己的私密态；`project(state, viewerId)` 不序列化牌堆、他人手牌、未揭示身份卡、夜晚目标。
 
 ## 3. 卡牌渲染（关键决策）
 
@@ -55,9 +57,19 @@ type RoomState = {
 
 type Projection = {
   version: number;
-  public: PublicView;           // 牌堆数、弃牌数、当前玩家、公开身份卡、日志
-  self: SelfView;               // 自己的手牌、身份卡、角色、私密提示
-  seats: SeatView[];            // 他人：指控数、已揭示身份卡、蓝卡、连接态
+  phase: Phase;
+  currentPlayerId: number;
+  actionTaken: boolean;
+  deckCount: number;
+  discardCount: number;
+  discard: CardId[];            // 公开弃牌堆；塞缪尔能力需要
+  deckOrder: CardId[] | null;   // 仅蒂图巴本人且能力未用时非 null
+  winner: Winner;
+  winnerReason: string | null;
+  log: GameEvent[];
+  self: SelfView;               // 自己的手牌、身份卡、角色、已用能力
+  seats: PublicPlayer[];        // 他人：指控数、已揭示身份卡、蓝卡、公开角色
+  night: { active: boolean; targetKnown: boolean } | null;
 };
 ```
 
@@ -68,36 +80,41 @@ type Projection = {
 
 ## 5. 规则引擎
 
-- 模型：命令 → 事件 → reducer；事件日志即回放；RNG 用服务端种子，事件记录 `seed`/`drawIndex`。
-- 阶段：`turnStart → drawChoice → draw2 → resolveImmediate → playCards → accusation → trialReveal → death → winCheck → turnEnd`。
-- 同时结算屏障：传染换牌先收集所有存活玩家选择，再原子应用；情侣连锁死亡入队列，依次结算；玛莎在回合开始快照右邻能力；拘留可叠加；蒂图巴调序生成置换事件。
-- 卡牌效果用 `Effect` 联合类型（`addAccusation`、`discardBlue`、`moveFront`、`transferHand`、`skipTurn`、`bind`、`nightImmune`、`blockRedAgainstPiety`、`nullifyAgainstSarahGood`、`revealTrial`…），文本只用于 UI。
+- 模型：命令 → 新状态 + 事件；命令函数返回 `{ok:true,state,events}` 或 `{ok:false,reason}`，旧状态不被原地修改；RNG 用服务端种子（`seed`），事件日志记录抽牌顺序。
+- 阶段：大厅 `lobby` → 黎明 `dawn` → 白天 `action` → 夜晚 `night` → 结束 `gameOver`；白天内部有抽牌、出牌、结算、推进回合。
+- 同时结算：传染先生成全体左邻换牌事件，再按座位顺序应用；情侣连锁死亡入队列；玛莎在回合开始读取右手边角色；拘留可叠加；蒂图巴调序生成新牌堆顺序。
+- 卡牌效果在 `playCard` 内分支实现：`addAccusation`、蓝卡弃置、嫁祸整组转移、抢劫换手、纵火、拘留、情侣绑定、夜晚免疫、信徒红卡免疫、莎拉·古德纵火/抢劫无效、诅咒弃蓝卡后立即翻牌。
 - 裁决以中文旧版为准；第二版/第 15 版只作差异参考，卡面 OCR 只作佐证。
-- 开局配置是纯函数：`resolveConfig(input)` 产出 `witchCount / identityCardsPerPlayer / constableCount`，`buildIdentityDeck` + 种子洗牌发牌；非法配置在开局前拒绝，不进入房间。
-- 测试：配置矩阵（4–12 人、女巫数、每人身份卡数、非法总数）、信徒红卡免疫、莎拉·古德纵火/抢劫免疫、红卡不跨次累计、乔治/托马斯阈值、死亡/胜负、夜晚救杀、回放确定性。
+- 开局配置：`resolveConfig(input)` 产出 `witchCount / identityCardsPerPlayer / identityCardTotal / constableCount`；`createGame` 按 `identityCardTotal` 发身份卡（不整除时前若干人各多 1 张），非法配置在开局前拒绝。
+- 已实现角色能力：阿比盖尔（可选弃红卡）、贾尔斯·科里（两红补抽）、科顿·马瑟（证据 1 点）、乔治·伯勒斯（8 点门槛）、托马斯·丹佛斯（6/7 点门槛）、威尔·格里格斯（辩护当目击）、莎拉·古德（免疫纵火/抢劫）、玛丽·沃伦（夜晚连锁免疫）、威廉·菲普斯（暗自首免疫）、塞缪尔·帕里斯（弃牌堆取牌）、蒂图巴（重排牌堆）、玛莎·科里（复制右邻）。
+- 测试：`cd packages/rules && node --test test/*.test.ts`，当前 32 条，覆盖配置矩阵、发牌守恒、红卡门槛、贾尔斯、阿比盖尔、威廉、信徒、莎拉·古德、嫁祸/抢劫、拘留、诅咒、情侣去重、辩护选牌、威尔、夜晚救杀、传染、丽贝卡抽牌归属、阴谋零身份卡出局、投影泄漏，以及 12 人 48 seed 随机对局 soak（59 张守恒、夜晚在途牌、死者牌区清空、投影零泄漏）。
 
 ## 6. 房间生命周期
 
-- 创建：房主生成 6 位房码（去掉 0/O/1/I），房间 TTL 2 小时；链接 `/r/CODE`。
-- 加入：昵称 + 头像；4–12 人；准备状态；房主可踢人、开局；人数不足/超员拒绝开局。
-- 开局：所有在座玩家准备；服务端洗牌、发角色卡/身份卡/手牌；座位顺序固定。
-- 掉线：60 秒宽限；超时托管，只自动“抽 2 张/结束回合”，不代做指控、自首、锤子、夜晚击杀等关键决策；重连回原座位。
-- 房主离开：自动转给最早加入的在线玩家；无人则房间进入 5 分钟保留。
-- 中途退出：按死亡处理但不揭示身份；MVP 不做观战；提前结束需全员投票。
-- 清理：结束/空闲 30 分钟销毁；事件日志保留 24 小时用于复盘（不含隐私）。
+- 创建：房主生成 6 位房码（去掉 0/O/1/I），房间 TTL 2 小时；暂无 `/r/CODE` 路由，链接用首页 + 房码。
+- 加入：昵称；4–12 人；准备状态；房主可踢人、开局；人数不足/超员拒绝开局。
+- 测试机器人：房主在大厅点“＋ 机器人”添加，最多补到 12 座；机器人自动准备、自动黎明/夜晚投票、轮到它时先尝试打出一张合法红卡，打不出则抽两张并结束回合；暂不用角色主动技能，仅用于单人联调。
+- 开局：所有在座玩家准备且在线；服务端洗牌、发角色卡/身份卡/手牌；`normalizeSeatIds` 按加入时间重排座位，避免大厅离开造成索引错位。
+- 掉线：默认 60 秒宽限（`GRACE_MS`）；超时托管，只自动“抽 2 张/结束回合”，不代做指控、自首、锤子、夜晚击杀等关键决策；重连凭 `sessionStorage` token 回原座位。
+- 房主离开：自动转给最早加入的在线玩家。
+- 自动化：`apps/server/test/lifecycle.mjs` 覆盖大厅踢人、对局中断线 token 回原座位、房主转移；`apps/server/test/bots_add.mjs` 覆盖房主加 3 个机器人、开局与机器人自动过回合。
+- 回合计时：默认 90 秒（`TURN_MS`）；夜晚 30 秒、黎明 45 秒，可环境变量覆盖。
+- 中途退出：座位保留为断线托管，不按死亡处理；MVP 不做观战；提前结束需全员投票（未实现）。
+- 清理：结束/空闲 30 分钟销毁；事件日志未持久化。
 
 ## 7. MVP 与验收
 
 - 范围：朋友房 4–12；完整基础 59 张 + 15 角色 + 3 身份；中文旧版规则；女巫数/每人身份卡数开局可配；H5 竖屏；游客；外置语音 + 快捷语；全屏夜晚；服务端权威；断线重连。
-- 优先验收：6–8 人完整局 10 局无阻断；12 人 soak 20 局；零隐藏信息泄漏；重连 <5 秒；p95 操作延迟 <300ms；低端机 30fps；单局 20–40 分钟。
-- 发布门禁：规则一致性测试 100%；12 人压测通过；投影泄漏扫描通过；iOS Safari/Android Chrome 各一台真机走通。
+- 已跑通：4 人协议冒烟、4 人真实浏览器对局、12 人建房/开局/牌桌、夜晚到终局、投影零泄漏测试、塞缪尔取牌 UI、威廉/阿比盖尔能力。
+- 待验收：6–8 人完整局 10 局无阻断；12 人 soak 20 局；重连 <5 秒；p95 操作延迟 <300ms；低端机 30fps；iOS Safari/Android Chrome 真机。
+- 发布门禁：规则一致性测试 100%；12 人压测通过；投影泄漏扫描通过；真机走通。
 - 二期：公共匹配、账号、教学/bot、观战/回放、内建语音、小程序、商业化。
 
 ## 8. 建议开工顺序
 
-1. `packages/rules`：状态机 + 卡牌效果 + 开局配置 + 59 张场景测试（不依赖 UI）；当前已落配置/信徒/莎拉·古德与 9 条测试。
-2. 服务端房间 + 投影 + seat token + 泄漏门禁。
-3. 客户端牌桌 + 卡牌详情（先接 `cards.zh.json`，不接正式美术）。
-4. 夜晚全屏流程 + 计时/托管。
-5. 房间生命周期 + 断线重连 + 12 人压测。
+1. `packages/rules`：状态机 + 卡牌效果 + 开局配置 + 场景测试；已完成 32 条（含 12 人 48 seed soak）。
+2. 服务端房间 + 投影 + seat token + 泄漏门禁；已完成基础。
+3. 客户端牌桌 + 卡牌详情；已完成。
+4. 夜晚全屏流程 + 计时/托管；已完成基础，待夜间残局与托管边界回归。
+5. 房间生命周期 + 断线重连 + 12 人压测；重连、12 人开局与规则层 soak 已跑通，长时服务端 soak 待做。
 6. 美术替换、音效、埋点、上线合规。
