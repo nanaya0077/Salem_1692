@@ -278,9 +278,23 @@ function privateState(room, seat) {
   return base;
 }
 
-function sync(room) {
+/**
+ * 座位表结构一变（开局重编号、座位被移出），每个连接自己的座位号与整张头像表都要换。
+ * 客户端只在 welcome 里拿到过一次，之后按座位号取人、取头像；projection 里的 private.seatId
+ * 只是回执、不带头像表，所以只改它是半修。resync 挂在同一条 room / projection 上一起发，
+ * 客户端一次就把「座位表 + 我是谁 + 头像表」收齐，不会出现「新座位号 + 旧座位表」的中间帧。
+ * 头像表整份下发（每座上限 96KB）只在座位上有人进出时发生，不跟随每次 sync。
+ */
+function sync(room, reissue = false) {
   const pub = publicRoom(room);
-  broadcast(room, { type: "room", room: pub });
+  // 每个连接认的座位号不同，所以重发只能逐座塞进它自己那条消息；没有结构变化时一次广播就够。
+  const avatars = reissue ? avatarsOf(room) : null;
+  const mine = (seat) => ({ avatars, seatId: seat.id });
+  if (reissue) {
+    for (const seat of room.seats) send(seat.ws, { type: "room", room: pub, resync: mine(seat) });
+  } else {
+    broadcast(room, { type: "room", room: pub });
+  }
   if (!room.game) return;
   for (const seat of room.seats) {
     send(seat.ws, {
@@ -288,6 +302,7 @@ function sync(room) {
       projection: project(room.game, seat.id),
       private: privateState(room, seat),
       room: pub,
+      ...(reissue ? { resync: mine(seat) } : {}),
     });
   }
   scheduleBots(room);
@@ -646,6 +661,8 @@ function leaveRoom(ws) {
       return;
     }
     if (room.hostSeat === seat.id) room.hostSeat = (humans.find((s) => s.connected) ?? humans[0]).id;
+    sync(room, true);
+    return;
   } else {
     scheduleAuto(room, seat);
     if (room.hostSeat === seat.id) {
@@ -697,6 +714,7 @@ function startGameFromLobby(room, seatId) {
   } catch (error) {
     return sendError(seatOf(room, seatId)?.ws, String(error.message || error), "invalid-config");
   }
+  // 重编号改了每个连接自己的座位号：sync 要把新座位表、新座位号、头像表一起发下去。
   normalizeSeatIds(room);
   try {
     // 发牌相位暂由服务端立即落定，角色确认与超时兜底见 #10。
@@ -717,7 +735,7 @@ function startGameFromLobby(room, seatId) {
   room.dawnDeadline = Date.now() + DAWN_MS;
   room.dawnTimer = setTimeout(() => finalizeDawn(room, true), DAWN_MS + 500);
   broadcast(room, { type: "notice", message: "身份卡已发，黎明开始。" });
-  sync(room);
+  sync(room, true);
   log("game started", room.code, room.seats.length);
 }
 
@@ -895,7 +913,7 @@ function handleMessage(ws, raw) {
       send(target.ws, { type: "error", message: "你被房主移出房间", reason: "kicked" });
       try { target.ws.close(4003, "kicked"); } catch {}
     }
-    sync(room);
+    sync(room, true);
     return;
   }
   if (type === "add-bot") return addBot(room, seat.id);

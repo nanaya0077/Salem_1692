@@ -249,11 +249,24 @@ function act(action) {
   send({ type: "action", commandId: commandId(), action });
 }
 
+// 座位表结构变了（开局重编号、座位被移出）：服务端把「我的座位号 + 整张头像」挂在同一条消息上发下来。
+// 客户端按座位号取人、取头像，所以这两样必须一起换，不能只改一样。
+function adoptIdentity(seatId, avatars) {
+  S.seatId = seatId;
+  resetAvatars(avatars);
+}
+
+function adoptResync(resync) {
+  adoptIdentity(resync.seatId, resync.avatars);
+  const session = loadSession();
+  if (session) saveSession({ ...session, seatId: resync.seatId });
+}
+
 function handle(msg) {
+  if (msg.resync) adoptResync(msg.resync);
   switch (msg.type) {
     case "welcome":
-      S.seatId = msg.seatId;
-      resetAvatars(msg.avatars);
+      adoptIdentity(msg.seatId, msg.avatars);
       saveSession({ code: msg.code, token: msg.token, seatId: msg.seatId });
       render();
       break;
