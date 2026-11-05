@@ -1,0 +1,229 @@
+{
+  "cards": [
+    {
+      "file": "docs/rules/_ugh_cards/Abigail Williams.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 48136,
+      "sha256": "2b7fe00bf038a5017b2194763b21e029502618113efa8172f606a3e94a687c8e"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Accusation.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 35843,
+      "sha256": "64abed95fd5eb69a9621863322102fc504311370c6af5ec9c0b28647518f25f4"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Alibi.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 39389,
+      "sha256": "9bf78ba8fdb21545d8ebb33b0e8523186bb3aa1a4f3945d3bb50f98a599ecafe"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Anne Putnam.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 49544,
+      "sha256": "03bf1b4b0447d308a6336c59fab71420086ed94e2268c51c4444530c17718701"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Arson.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 37025,
+      "sha256": "df16f83a64df71a361273b46010db4c0b98cbc9f1555cfdea0fb4540e437a13d"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Asylum.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 37946,
+      "sha256": "a1727591b1c4b978e20a432a1b0ef3416c3c55c09cb89231d9d7e6208606e5a0"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Black Cat.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 41428,
+      "sha256": "cacc00f1595e7e57517d2289e2d60f3ce41fa28d1c285e8540a744a6b1548c3d"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Bless.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 37817,
+      "sha256": "bedd974ba31c7161c0b74f9b75bb32f40959a250b81b99b8536dd30e85428afd"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Conspiracy.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 29893,
+      "sha256": "1026fd0b5a9ad85880d43a02e9c740ae4aac7f1397637b50c872eba9da7e73f4"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Cotton Mather.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 48217,
+      "sha256": "76394637d4ecaf2cd77357f524c46232b9b19a539de1ba01607d48fece84c2b7"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Curse.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 38864,
+      "sha256": "35b401ef4e63bff26755937c38867a8f37f8a8f2756535c55d45390355184766"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Evidence.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 38326,
+      "sha256": "1cfb229d5d8833e3a88d9d43160cbe75bdc9b1551b638b178f40e56494bac352"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/George Burroughs.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 46760,
+      "sha256": "12a53311514d4e52ca9349a9ae2847768d43b583107166e32bd25332fb25b855"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Giles Corey.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 45475,
+      "sha256": "07f8ba0ea31e4afe0ea1491bc1be79b80c8f62afaa29d4004d478d644824aa05"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/John Proctor.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 48000,
+      "sha256": "5e99eb60151bf3a2909c3e93e5ae85d84b6b62fc64e5eb4da3dd07d9c8f44045"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Martha Corey.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 48517,
+      "sha256": "2ef1620bb9ec5985a75c31e4509948a584480e1beb135b73bf7a6fc7b29ca1c2"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Mary Warren.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 47925,
+      "sha256": "d8ac5a912f32f5ff9bb5a26dd0f1f875537e1c488d2002537582168de8cdf2e0"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Matchmaker.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 44055,
+      "sha256": "6198f059b70fb02f7178baa0f32d1c13300c9c1610480bc735863d8cacdbae9b"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Night.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 28030,
+      "sha256": "60c3c76d750f1c7625e8dedd785cb22f5c67327c6787c1f09242d29645cd0713"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Piety.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 39125,
+      "sha256": "291655023fba89f808958e01659482e75bd74884af381218952632321528ee5a"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Rebecca Nurse.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 48812,
+      "sha256": "53d2206a8d6697ff5ad7a62e14cee028205e248d67ffd45a589bc1938154227f"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Robbery.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 40781,
+      "sha256": "914b265fe880b920853ce61dc1d7b5873eaccfa6eb2cca19c05af1fe8df54837"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Samuel Parris.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 48280,
+      "sha256": "a91a6221b3da247562cb2cf4e8ba11da640815f9667faa860a2a20122cf440b1"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Sarah Good.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 48500,
+      "sha256": "57842088c377b69c436178bda213c5369147f0cee6a476b1fc109e974196756f"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/SECRET.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 40463,
+      "sha256": "0e41b055b94da645bff1b4596a0a4d755471b68e1bc550a946982cd86e1e409d"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Shilling.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 38235,
+      "sha256": "ddb00eebd7a47e90ccba3c04a0f0e52d6ebd9116275d4546de9da493a5c6bcb6"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Stocks.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 37323,
+      "sha256": "ceb2ffa9d2ae892a7014c20ddff9908b2f5c9a572bfcdcdb70349415002ae66f"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Thomas Danforth.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 49832,
+      "sha256": "ad67e8e3997df0e4db0a5565971ee4add89080a967e62e15ff483ef2434661ef"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Tituba.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 47090,
+      "sha256": "d66bcefd176b3a0c2e08adde04d08bc1c1d041af20cae5d11a2d57d0435fc534"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Will Griggs.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 48399,
+      "sha256": "576c13566d6741ca30116b823c7300bfbc2b23e3e44c9390c8a8b4fcde805bf9"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/William Phipps.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 47700,
+      "sha256": "efaaf7a77f31de585970ab6f40d481a2c4fc63f85300b51cd28846d8cbbf5d11"
+    },
+    {
+      "file": "docs/rules/_ugh_cards/Witness.jpg",
+      "w": 176,
+      "h": 264,
+      "bytes": 40077,
+      "sha256": "794f5bf7c8cf01c1b615e7786bf3105295c0c180a10317a3c4b695c931f7bb61"
+    }
+  ],
+  "count": 32
+}

@@ -1,0 +1,6 @@
+node_modules/
+prototype/_check.js
+salem-partial.zip
+.DS_Store
+Thumbs.db
+*.log

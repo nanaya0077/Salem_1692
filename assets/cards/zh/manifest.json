@@ -1,0 +1,211 @@
+{
+  "source": "docs/rules/_ugh_cards + docs/rules/_card_faces",
+  "size": [
+    750,
+    1136
+  ],
+  "print_size": [
+    1125,
+    1704
+  ],
+  "cards": [
+    {
+      "slug": "accusation",
+      "name": "指控",
+      "type": "base",
+      "source": "Accusation.jpg"
+    },
+    {
+      "slug": "alibi",
+      "name": "辩护",
+      "type": "base",
+      "source": "Alibi.jpg"
+    },
+    {
+      "slug": "arson",
+      "name": "纵火",
+      "type": "base",
+      "source": "Arson.jpg"
+    },
+    {
+      "slug": "asylum",
+      "name": "避难",
+      "type": "base",
+      "source": "Asylum.jpg"
+    },
+    {
+      "slug": "black-cat",
+      "name": "黑猫",
+      "type": "base",
+      "source": "Black Cat.jpg"
+    },
+    {
+      "slug": "conspiracy",
+      "name": "传染",
+      "type": "base",
+      "source": "Conspiracy.jpg"
+    },
+    {
+      "slug": "curse",
+      "name": "诅咒",
+      "type": "base",
+      "source": "Curse.jpg"
+    },
+    {
+      "slug": "evidence",
+      "name": "证据",
+      "type": "base",
+      "source": "Evidence.jpg"
+    },
+    {
+      "slug": "matchmaker",
+      "name": "情侣",
+      "type": "base",
+      "source": "Matchmaker.jpg"
+    },
+    {
+      "slug": "night",
+      "name": "夜晚",
+      "type": "base",
+      "source": "Night.jpg"
+    },
+    {
+      "slug": "piety",
+      "name": "信徒",
+      "type": "base",
+      "source": "Piety.jpg"
+    },
+    {
+      "slug": "robbery",
+      "name": "抢劫",
+      "type": "base",
+      "source": "Robbery.jpg"
+    },
+    {
+      "slug": "scapegoat",
+      "name": "嫁祸",
+      "type": "base",
+      "source": "SECRET.jpg"
+    },
+    {
+      "slug": "stocks",
+      "name": "拘留",
+      "type": "base",
+      "source": "Stocks.jpg"
+    },
+    {
+      "slug": "witness",
+      "name": "目击",
+      "type": "base",
+      "source": "Witness.jpg"
+    },
+    {
+      "slug": "abigail-williams",
+      "name": "阿比盖尔·威廉姆斯",
+      "type": "identity",
+      "source": "Abigail Williams.jpg"
+    },
+    {
+      "slug": "anne-putnam",
+      "name": "安妮·普特南",
+      "type": "identity",
+      "source": "Anne Putnam.jpg"
+    },
+    {
+      "slug": "cotton-mather",
+      "name": "科顿·马瑟",
+      "type": "identity",
+      "source": "Cotton Mather.jpg"
+    },
+    {
+      "slug": "george-burroughs",
+      "name": "乔治·伯勒斯",
+      "type": "identity",
+      "source": "George Burroughs.jpg"
+    },
+    {
+      "slug": "giles-corey",
+      "name": "贾尔斯·科里",
+      "type": "identity",
+      "source": "Giles Corey.jpg"
+    },
+    {
+      "slug": "john-proctor",
+      "name": "约翰·普罗克特",
+      "type": "identity",
+      "source": "John Proctor.jpg"
+    },
+    {
+      "slug": "martha-corey",
+      "name": "玛莎·科里",
+      "type": "identity",
+      "source": "Martha Corey.jpg"
+    },
+    {
+      "slug": "mary-warren",
+      "name": "玛丽·沃伦",
+      "type": "identity",
+      "source": "Mary Warren.jpg"
+    },
+    {
+      "slug": "rebecca-nurse",
+      "name": "丽贝卡·诺斯",
+      "type": "identity",
+      "source": "Rebecca Nurse.jpg"
+    },
+    {
+      "slug": "samuel-parris",
+      "name": "塞缪尔·帕里斯",
+      "type": "identity",
+      "source": "Samuel Parris.jpg"
+    },
+    {
+      "slug": "sarah-good",
+      "name": "莎拉·古德",
+      "type": "identity",
+      "source": "Sarah Good.jpg"
+    },
+    {
+      "slug": "thomas-danforth",
+      "name": "托马斯·丹福斯",
+      "type": "identity",
+      "source": "Thomas Danforth.jpg"
+    },
+    {
+      "slug": "tituba",
+      "name": "蒂图巴",
+      "type": "identity",
+      "source": "Tituba.jpg"
+    },
+    {
+      "slug": "will-griggs",
+      "name": "威尔·格里格斯",
+      "type": "identity",
+      "source": "Will Griggs.jpg"
+    },
+    {
+      "slug": "william-phipps",
+      "name": "威廉·菲普斯",
+      "type": "identity",
+      "source": "William Phipps.jpg"
+    },
+    {
+      "slug": "constable",
+      "name": "警长",
+      "type": "trial",
+      "source": "Constable.png"
+    },
+    {
+      "slug": "not-a-witch",
+      "name": "平民",
+      "type": "trial",
+      "source": "NotAWitch.png"
+    },
+    {
+      "slug": "witch",
+      "name": "女巫",
+      "type": "trial",
+      "source": "Witch.png"
+    }
+  ]
+}
