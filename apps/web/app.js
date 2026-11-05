@@ -13,6 +13,8 @@ const S = {
   pending: null,
   modalCard: null,
   chats: [],
+  avatars: new Map(),
+  avatarSrc: new Map(),
   nightKey: null,
   turnLabel: "",
   nightChoice: { targetId: null, hammerTargetId: null, confess: false, useWilliam: false },
@@ -88,6 +90,73 @@ function seatName(id) {
   return fromProjection?.name ?? "玩家 " + id;
 }
 
+/** 首字占位按「字符」取：Array.from 按码位切，emoji 昵称不会被切出半个码元。 */
+function initialOf(name) {
+  return Array.from(String(name ?? ""))[0] ?? "？";
+}
+
+/** data URL → Blob；解析不出来返回 null，由调用方退回 data URL 直出。 */
+function dataUrlToBlob(dataUrl) {
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) return null;
+  const mime = dataUrl.slice(5, comma).split(";")[0] || "application/octet-stream";
+  const binary = atob(dataUrl.slice(comma + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+/**
+ * 头像的可用地址。头像表存 data URL，若每次全量重绘都把它写进 innerHTML，
+ * 12 人房每同步一次都要重新解析几百 KB 字符串；这里按座位缓存成 blob: 地址，
+ * 重绘只写一小段 URL。拿不到 createObjectURL 时原样用 data URL，行为不变。
+ */
+function avatarSrc(seatId) {
+  const dataUrl = S.avatars.get(seatId);
+  if (!dataUrl) return null;
+  const cached = S.avatarSrc.get(seatId);
+  if (cached && cached.dataUrl === dataUrl) return cached.src;
+  let src = dataUrl;
+  try {
+    const blob = dataUrlToBlob(dataUrl);
+    if (blob && typeof URL.createObjectURL === "function") src = URL.createObjectURL(blob);
+  } catch { /* 退回 data URL */ }
+  releaseAvatar(seatId);
+  S.avatarSrc.set(seatId, { dataUrl, src });
+  return src;
+}
+
+/** 释放某个座位的 blob 地址（换了头像或移除头像时）。 */
+function releaseAvatar(seatId) {
+  const cached = S.avatarSrc.get(seatId);
+  if (!cached) return;
+  S.avatarSrc.delete(seatId);
+  if (cached.src.startsWith("blob:")) URL.revokeObjectURL(cached.src);
+}
+
+/** 全量替换头像表（welcome）：旧 blob 地址全部释放，重绘时按需重建。 */
+function resetAvatars(avatars) {
+  for (const seatId of [...S.avatarSrc.keys()]) releaseAvatar(seatId);
+  S.avatars = new Map(Object.entries(avatars ?? {}).map(([id, url]) => [Number(id), url]));
+}
+
+/** 单座位头像写入（avatar 消息）；dataUrl 为空表示移除。 */
+function setAvatar(seatId, dataUrl) {
+  releaseAvatar(seatId);
+  if (dataUrl) S.avatars.set(seatId, dataUrl);
+  else S.avatars.delete(seatId);
+}
+
+/**
+ * 所有「标人」位置共用这一个圆牌：有头像放图，没有回落昵称首字。
+ * 尺寸仍由各处的 .avatar 规则决定，这里只管内容。
+ */
+function avatarChip(seatId, name) {
+  const src = avatarSrc(seatId);
+  if (!src) return '<span class="avatar">' + esc(initialOf(name)) + "</span>";
+  return '<span class="avatar has-image"><img src="' + esc(src) + '" alt="" /></span>';
+}
+
 function isSelf(id) {
   return id === S.seatId;
 }
@@ -161,7 +230,13 @@ function handle(msg) {
   switch (msg.type) {
     case "welcome":
       S.seatId = msg.seatId;
+      resetAvatars(msg.avatars);
       saveSession({ code: msg.code, token: msg.token, seatId: msg.seatId });
+      render();
+      break;
+    case "avatar":
+      setAvatar(Number(msg.seatId), msg.dataUrl);
+      render();
       break;
     case "room":
       S.room = msg.room;
@@ -188,6 +263,7 @@ function handle(msg) {
     case "error":
       if (msg.reason === "room-not-found" || msg.reason === "no-seat") {
         clearSession();
+        resetAvatars(null);
         S.room = null;
         S.projection = null;
         S.private = null;
@@ -240,7 +316,7 @@ function renderLobby() {
       ? '<button class="seat-kick" data-kick="' + seat.id + '" title="移除机器人">×</button>'
       : "";
     return '<div class="lobby-seat ' + (seat.ready ? "ready " : "") + (seat.connected ? "" : "offline") + '">' +
-      '<div class="avatar">' + esc(seat.name.slice(0, 1)) + "</div>" +
+      avatarChip(seat.id, seat.name) +
       '<div style="min-width:0"><div class="seat-name">' + esc(seat.name) + "</div>" +
       '<div class="seat-sub">' + (tags.join(" · ") || "玩家") + (seat.connected ? "" : " · 离线") + (seat.ready ? " · 已准备" : " · 未准备") + "</div></div>" + kick + "</div>";
   }).join("");
@@ -309,7 +385,7 @@ function renderGame() {
     if (selectableSeat(player.id)) classes.push("selectable");
     if (p.currentPlayerId === player.id) classes.push("me");
     return '<button class="' + classes.join(" ") + '" data-seat="' + player.id + '">' +
-      '<div class="avatar">' + esc(player.name.slice(0, 1)) + "</div>" +
+      avatarChip(player.id, player.name) +
       '<div class="seat-name">' + esc(player.name) + "</div>" +
       '<div class="seat-meta"><span>手牌 <b>' + player.handCount + "</b></span><span>指控 <b>" + player.accusations + "</b></span></div>" +
       '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? (t.kind === "witch" ? "witch" : t.kind === "constable" ? "constable" : "on") : "") + '"></span>').join("") + "</div>" +
@@ -319,7 +395,7 @@ function renderGame() {
   }).join("");
 
   $("selfPanel").innerHTML =
-    '<div class="avatar">' + esc(seatName(S.seatId).slice(0, 1)) + "</div>" +
+    avatarChip(S.seatId, seatName(S.seatId)) +
     '<div class="self-main"><div class="self-name">' + esc(seatName(S.seatId)) + " · 你</div>" +
     '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div></div>" +
     '<div class="self-trials">' + trialChips({ trials: my.trials }) + "</div>";
@@ -586,7 +662,7 @@ function renderNight() {
   if (info.isWitch) {
     $("nightTargets").innerHTML = (S.projection?.seats ?? []).filter((s) => s.alive).map((s) =>
       '<button class="pick ' + (S.nightChoice.targetId === s.id ? "selected" : "") + '" data-night-target="' + s.id + '">' +
-      '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + "</span></button>").join("");
+      avatarChip(s.id, s.name) + "<span>" + esc(s.name) + "</span></button>").join("");
   }
   $("nightHammerBlock").hidden = !info.isConstable;
   if (info.isConstable) {
@@ -594,7 +670,7 @@ function renderNight() {
     $("nightHammer").innerHTML =
       '<button class="pick ' + (S.nightChoice.hammerTargetId == null ? "selected" : "") + '" data-hammer="none">不使用木槌</button>' +
       options.map((s) => '<button class="pick ' + (S.nightChoice.hammerTargetId === s.id ? "selected" : "") + '" data-hammer="' + s.id + '">' +
-        '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + "</span></button>").join("");
+        avatarChip(s.id, s.name) + "<span>" + esc(s.name) + "</span></button>").join("");
   }
   $("nightConfessBlock").hidden = !info.canConfess;
   $("confessCheck").checked = S.nightChoice.confess;
@@ -624,7 +700,7 @@ function renderDawn() {
   if (info.isWitch) {
     $("dawnTargets").innerHTML = (S.projection?.seats ?? []).filter((s) => s.alive).map((s) =>
       '<button class="pick ' + (S.dawnTarget === s.id ? "selected" : "") + '" data-dawn-target="' + s.id + '">' +
-      '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</span></button>").join("");
+      avatarChip(s.id, s.name) + "<span>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</span></button>").join("");
   }
 }
 
@@ -634,8 +710,10 @@ function renderOver() {
   $("overReason").textContent = p?.winnerReason ?? "";
   $("overRoles").innerHTML = (p?.seats ?? []).map((s) => {
     const kindClass = s.everWitch === true ? "witch" : "";
-    return '<div class="over-role ' + kindClass + '"><b>' + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</b>" +
-      esc(roleName(s.role)) + " · " + (s.alive ? "存活" : "死亡") + "<br />" + trialChips(s) + "</div>";
+    return '<div class="over-role ' + kindClass + '"><div class="over-head">' + avatarChip(s.id, s.name) +
+      "<b>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</b></div>" +
+      '<div class="over-meta">' + esc(roleName(s.role)) + " · " + (s.alive ? "存活" : "死亡") + "</div>" +
+      trialChips(s) + "</div>";
   }).join("");
 }
 
@@ -759,6 +837,7 @@ function leaveToLanding() {
   S.leaving = true;
   if (S.ws && S.ws.readyState === WebSocket.OPEN && S.room) send({ type: "leave" });
   clearSession();
+  resetAvatars(null);
   S.room = null;
   S.projection = null;
   S.private = null;
