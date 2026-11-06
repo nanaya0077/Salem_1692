@@ -233,14 +233,7 @@ function handle(msg) {
         break;
       }
       // 玩家手输房码撞上房间不存在：保持落地页原有提示，不进终态。
-      if (outcome === "join-failed") {
-        clearSession();
-        S.room = null;
-        S.projection = null;
-        S.private = null;
-        S.seatId = null;
-        render();
-      }
+      if (outcome === "join-failed") resetRoomState();
       toast(msg.message || "操作失败");
       break;
     }
