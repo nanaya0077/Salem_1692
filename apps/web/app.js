@@ -20,7 +20,7 @@ import {
 import { cleanName, createProfileStore, initialOf } from "./profile-store.js";
 import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE } from "./table-view.js";
 import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
-import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText } from "./reveal-view.js";
+import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText, revealBannerText } from "./reveal-view.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -62,7 +62,11 @@ const S = {
   roomGone: false,
   queued: null,
   sent: [],
-  avatars: {},
+  avatars: new Map(),
+  flipSeen: new Map(),
+  seenLog: null,
+  revealQueue: [],
+  revealTimer: null,
   quotaWarned: false,
 };
 // 调试入口：浏览器控制台与联调脚本可直接读当前状态。
@@ -395,6 +399,8 @@ function handle(msg) {
       S.revealWait = msg.revealWait ?? null;
       if (msg.room) S.room = msg.room;
       render();
+      // 翻身份卡是全桌可见的公开事件：投影一到就把新增的那几条挑出来，不等玩家自己开日志。
+      announceReveals();
       break;
     case "events":
       // projection already carries the full log; events are a prompt to refresh nothing.
@@ -519,22 +525,34 @@ function selectableSeat(id) {
 }
 
 /** 自己那排身份卡：横向卡片条；未揭示只给牌背，揭示后给牌面与和座位点阵同色的角标。 */
-function trialStrip(trials) {
+function trialStrip(trials, seatId) {
   const list = trials ?? [];
   if (!list.length) return '<span class="muted">无身份卡</span>';
-  return list.map((t, i) => {
+  const known = seatId == null ? Number.POSITIVE_INFINITY : (S.flipSeen.get(seatId) ?? 0);
+  let revealedCount = 0;
+  const html = list.map((t, i) => {
     const revealed = t.revealed === true;
     const kind = t.kind ?? "townspeople";
     const face = card(trialFaceCardId(kind));
-    const image = revealed ? face.image : TRIAL_BACK_IMAGE;
+    const back = TRIAL_BACK_IMAGE;
+    const front = revealed ? face.image : "";
     const tone = trialTone(kind);
     const label = revealed ? face.name : "身份卡（未揭示）";
-    return '<button type="button" class="trial-card' + (revealed ? " revealed" : "") + '" data-trial="' + i +
+    // 只有这次渲染第一次见到的已揭示卡才翻：否则每次重绘整排都会重播一遍。
+    const fresh = revealed && revealedCount >= known;
+    if (revealed) revealedCount += 1;
+    return '<button type="button" class="trial-card' + (revealed ? " revealed" : "") +
+      (fresh ? " flip-in" : "") + '" data-trial="' + i +
       '" title="' + esc(label) + '" aria-label="' + esc(label) + '">' +
-      (image ? '<img src="/' + esc(image) + '" alt="" loading="lazy" draggable="false" />' : "") +
+      '<span class="trial-inner">' +
+      (back ? '<span class="trial-face trial-back"><img src="/' + esc(back) + '" alt="" loading="lazy" draggable="false" /></span>' : "") +
+      (front ? '<span class="trial-face trial-front"><img src="/' + esc(front) + '" alt="" loading="lazy" draggable="false" /></span>' : "") +
+      "</span>" +
       (revealed ? '<span class="trial-tone ' + tone + '"></span>' : "") +
       "</button>";
   }).join("");
+  if (seatId != null) S.flipSeen.set(seatId, revealedCount);
+  return html;
 }
 
 /** 点自己的身份卡打开现有详情浮层：牌面按类型映射到女巫、警长、平民三张资源。 */
@@ -694,7 +712,7 @@ function renderGame() {
     '<div class="self-main"><div class="self-name">' + esc(seatName(S.seatId)) + " · 你</div>" +
     '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div>" +
     selfAbilityLine(my.role) + "</div>" +
-    '<div class="self-trials trial-strip">' + trialStrip(my.trials) + "</div>";
+    '<div class="self-trials trial-strip">' + trialStrip(my.trials, S.seatId) + "</div>";
 
   $("hand").innerHTML = (my.hand ?? []).map((id) => {
     const c = card(id);
@@ -970,6 +988,54 @@ function formatEvent(e) {
     case "notice": return esc(e.text);
     default: return esc(e.type);
   }
+}
+
+/** 横幅停留时长：够读完「谁翻了谁 + 翻出什么」，又不至于挡住下一步操作。 */
+const REVEAL_BANNER_MS = 4200;
+
+/**
+ * 翻身份卡是公开事件，规则层已经把它写进 `state.log`（trialRevealed），全桌都在同一条投影里。
+ * 这里只做一件事：把本次投影新增的那几条挑出来，排队播给所有人看。
+ * 首次进入或换局（日志变短）一律当作已读，免得一进房间就把历史重放一遍。
+ */
+function announceReveals() {
+  const log = S.projection?.log ?? [];
+  if (S.seenLog === null || log.length < S.seenLog) {
+    S.seenLog = log.length;
+    return;
+  }
+  for (const event of log.slice(S.seenLog)) {
+    if (event?.type === "trialRevealed") S.revealQueue.push(event);
+  }
+  S.seenLog = log.length;
+  if (S.revealQueue.length && !S.revealTimer) showNextReveal();
+}
+
+function showNextReveal() {
+  const event = S.revealQueue.shift();
+  if (!event) {
+    S.revealTimer = null;
+    return;
+  }
+  const view = revealBannerText(event, { nameOf: seatName, label: trialLabel });
+  const face = card(trialFaceCardId(event.kind ?? "townspeople"));
+  const image = $("revealBannerImage");
+  if (face.image) {
+    image.src = "/" + face.image;
+    image.hidden = false;
+  } else {
+    image.removeAttribute("src");
+    image.hidden = true;
+  }
+  $("revealBanner").dataset.card = trialFaceCardId(event.kind ?? "townspeople");
+  $("revealBannerKicker").textContent = view.kicker;
+  $("revealBannerTitle").textContent = view.title;
+  $("revealBanner").hidden = false;
+  S.revealTimer = setTimeout(() => {
+    $("revealBanner").hidden = true;
+    S.revealTimer = null;
+    if (S.revealQueue.length) showNextReveal();
+  }, REVEAL_BANNER_MS);
 }
 
 function renderOverlays() {
@@ -1462,8 +1528,17 @@ function resetRoomState() {
   S.deal = null;
   S.dealFlipped = new Set();
   S.dealKey = null;
+  S.seenLog = null;
+  S.revealQueue = [];
+  S.flipSeen.clear();
+  if (S.revealTimer) {
+    clearTimeout(S.revealTimer);
+    S.revealTimer = null;
+  }
+  $("revealBanner").hidden = true;
   closeModal();
   closeProfile();
+  closeRoleInfo();
   render();
 }
 
@@ -1636,6 +1711,18 @@ function bind() {
   $("hand").addEventListener("click", (event) => {
     const button = event.target.closest("[data-card]");
     if (button) openCardModal(button.dataset.card);
+  });
+  // 横幅本身就能点：点开看牌面，同时把这条收掉，后面的排队接着播。
+  $("revealBanner").addEventListener("click", () => {
+    const banner = $("revealBanner");
+    const cardId = banner.dataset.card;
+    banner.hidden = true;
+    if (S.revealTimer) {
+      clearTimeout(S.revealTimer);
+      S.revealTimer = null;
+    }
+    if (S.revealQueue.length) showNextReveal();
+    if (cardId) openCardModal(cardId);
   });
   $("actionBar").addEventListener("click", (event) => {
     const button = event.target.closest("[data-act]");

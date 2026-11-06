@@ -65,3 +65,19 @@ export function revealLogText(event, options = {}) {
   return text;
 }
 
+/**
+ * 全桌横幅：翻开身份卡是公开事件，每个人都要在当场看到「翻了谁的、翻出的是什么」，
+ * 而不是事后自己去翻日志。返回 { kicker, title }，title 就是身份卡类别（女巫 / 平民 / 警长）。
+ */
+export function revealBannerText(event, options = {}) {
+  const { nameOf, label } = options;
+  const who = seatLabel(event?.playerId, nameOf);
+  const chooser = seatLabel(event?.chooserId, nameOf);
+  const kind = typeof label === "function" ? label(event?.kind) : event?.kind;
+  const title = kind ?? "身份卡";
+  if (event?.cause === "conspiracy") return { kicker: who + " 被传染，翻开一张身份卡", title };
+  if (event?.cause === "confession") return { kicker: who + " 自首，翻开自己一张身份卡", title };
+  const auto = event?.auto === true ? "（自动取了第一个位置）" : "";
+  return { kicker: chooser + " 翻开了 " + who + " 的身份卡" + auto, title };
+}
+

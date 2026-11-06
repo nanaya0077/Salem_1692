@@ -277,6 +277,22 @@
       <button id="chatSend" class="icon-btn" title="发送">➤</button>
     </div>
 
+    <div id="revealBanner" class="reveal-banner" hidden role="status" aria-live="polite">
+      <img id="revealBannerImage" class="reveal-banner-image" alt="" />
+      <div class="reveal-banner-copy">
+        <div id="revealBannerKicker" class="reveal-banner-kicker"></div>
+        <div id="revealBannerTitle" class="reveal-banner-title"></div>
+      </div>
+    </div>
+
+    <button id="revealBanner" class="reveal-banner" type="button" hidden>
+      <img id="revealBannerImage" class="reveal-banner-image" alt="" hidden />
+      <span class="reveal-banner-copy">
+        <span id="revealBannerKicker" class="reveal-banner-kicker"></span>
+        <span id="revealBannerTitle" class="reveal-banner-title"></span>
+      </span>
+    </button>
+
     <div id="toast" class="toast" hidden></div>
   </div>
   <script type="module" src="/app.js"></script>
