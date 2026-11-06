@@ -327,6 +327,30 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .toast.ok { background: rgba(64,104,66,.96); }
 
 
+/* 挂起揭示：位置选择条 */
+.reveal-bar {
+  display: flex; flex-direction: column; gap: 6px; flex: none;
+  padding: 8px 12px 10px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(58,34,26,.96), rgba(34,22,17,.96)); color: var(--parchment);
+}
+.reveal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.reveal-title { font-size: 12px; font-weight: 700; color: var(--gold2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reveal-slots { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; padding-bottom: 2px; }
+.reveal-slots::-webkit-scrollbar { display: none; }
+.reveal-slot {
+  flex: none; width: 56px; padding: 0; position: relative; overflow: hidden; border-radius: 9px;
+  border: 1px solid rgba(219,188,138,.34); background: #1d1410;
+  box-shadow: 0 4px 10px rgba(0,0,0,.3); color: var(--parchment);
+}
+.reveal-slot img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; }
+.reveal-slot-cap { display: block; padding: 3px 2px 4px; font-size: 9px; text-align: center; background: rgba(0,0,0,.45); }
+.reveal-slot[disabled] { opacity: .55; border-color: rgba(216,169,76,.25); }
+.reveal-slot.revealed.witch { border-color: var(--blood2); }
+.reveal-slot.revealed.constable { border-color: var(--blue); }
+.reveal-slot.revealed.on { border-color: var(--gold); }
+.reveal-slot.revealed .reveal-slot-cap { color: var(--gold2); }
+.reveal-hint { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+
 /* 发牌确认屏 */
 .overlay.deal { background: radial-gradient(120% 90% at 50% 0%, #2a2118, #0c0807 70%); }
 .deal-panel { text-align: left; }

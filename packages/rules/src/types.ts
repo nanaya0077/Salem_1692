@@ -179,7 +179,7 @@ export type GameEvent =
   | { type: "cardNullified"; cardId: CardId; reason: "sarah-good" }
   | { type: "accusationAdded"; targetId: number; cardId: CardId; points: number; total: number }
   | { type: "accusationsDiscarded"; playerId: number; count: number }
-  | { type: "trialRevealed"; playerId: number; kind: IdentityKind; cause: string; chooserId: number }
+  | { type: "trialRevealed"; playerId: number; kind: IdentityKind; cause: string; chooserId: number; auto?: boolean }
   | { type: "playerDied"; playerId: number; cause: string; everWitch: boolean }
   | { type: "handDiscarded"; playerId: number; count: number }
   | { type: "handTransferred"; fromId: number; toId: number; count: number }

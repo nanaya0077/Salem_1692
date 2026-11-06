@@ -195,6 +195,7 @@ function revealTrial(
   cause: string,
   events: GameEvent[],
   trialId?: string,
+  auto = false,
 ): boolean {
   const target = state.players[targetId];
   if (!target || !target.alive) return false;
@@ -207,7 +208,8 @@ function revealTrial(
     return false;
   }
   trial.revealed = true;
-  events.push({ type: "trialRevealed", playerId: targetId, kind: trial.kind, cause, chooserId });
+  // auto 只在服务端托管/超时代翻时置 true；规则层自己触发的揭示（传染、自首等）不置。
+  events.push({ type: "trialRevealed", playerId: targetId, kind: trial.kind, cause, chooserId, ...(auto ? { auto: true } : {}) });
   if (state.phase === "action" && state.currentPlayerId === chooserId) state.turn.trialsRevealed += 1;
   if (trial.kind === "witch") {
     target.everWitch = true;
@@ -579,7 +581,12 @@ export function playCard(state: GameState, action: PlayAction): ActionResult {
  * 结算挂起式揭示：按位置号翻开目标那一张身份卡，或（仅丹福斯对普通玩家第 6 点）放弃。
  * 位置号在规则层映射回身份卡 id，卡 id 不出规则包。
  */
-export function resolvePendingReveal(state: GameState, actorId: number, command: RevealCommand): ActionResult {
+export function resolvePendingReveal(
+  state: GameState,
+  actorId: number,
+  command: RevealCommand,
+  options: { auto?: boolean } = {},
+): ActionResult {
   const pending = state.pendingReveal;
   if (!pending) return { ok: false, reason: "no-pending-reveal" };
   if (pending.chooserId !== actorId) return { ok: false, reason: "not-chooser" };
@@ -607,7 +614,7 @@ export function resolvePendingReveal(state: GameState, actorId: number, command:
   const trialId = next.players[pending.targetId].trials[command.trialIndex].id;
   next.pendingReveal = null;
   const events: GameEvent[] = [];
-  revealTrial(next, pending.targetId, pending.chooserId, pending.cause, events, trialId);
+  revealTrial(next, pending.targetId, pending.chooserId, pending.cause, events, trialId, options.auto === true);
   settleAfterReveal(next, pending.targetId, pending.chooserId, pending.cause, pending.useAbigail, events);
   pushEvents(next, events);
   return { ok: true, state: next, events };
