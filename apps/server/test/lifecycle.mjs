@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import assert from "node:assert/strict";
+import { passDealPhase } from "./lib/deal.mjs";
 
 const BASE = process.env.BASE || "http://127.0.0.1:8102";
 const WS = BASE.replace(/^http/, "ws") + "/ws";
@@ -77,6 +78,9 @@ console.log("kick ok; seats", host.room.seats.map((s) => s.name + "#" + s.id).jo
 for (const c of [host, abigail, john, mary]) c.send({ type: "ready", ready: true });
 await waitFor("startable", () => host.room?.startable, 5000);
 host.send({ type: "start" });
+for (const c of [host, abigail, john, mary]) {
+  await passDealPhase({ seatId: c.seatId, getProjection: () => c.projection, getPrivate: () => c.private, send: (m) => c.send(m), waitFor });
+}
 await waitFor("dawn", () => clients.slice(0, 4).every((c) => c.projection?.phase === "dawn"), 8000);
 for (const c of [host, abigail, john, mary]) {
   if (c.private?.dawn?.isWitch && !c.private.dawn.submitted) {

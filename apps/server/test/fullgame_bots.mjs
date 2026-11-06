@@ -157,7 +157,8 @@ class BotClient {
   queue(action) {
     // 新状态覆盖旧动作：夜晚/换人时，旧的定时器不能把过期动作发出去。
     if (this.actionTimer) clearTimeout(this.actionTimer);
-    const expectedPhase = action?.kind === "dawn" ? "dawn" : action?.kind === "night" ? "night" : "action";
+    const isDeal = action?.kind === "chooseRole" || action?.kind === "dealAck";
+    const expectedPhase = action?.kind === "dawn" ? "dawn" : action?.kind === "night" ? "night" : isDeal ? "deal" : "action";
     this.actionTimer = setTimeout(() => {
       this.actionTimer = null;
       if (this.closed) return;
@@ -191,6 +192,18 @@ class BotClient {
       priv?.dawn?.submitted,
       priv?.night?.submitted,
     ].join(":");
+
+    // 发牌相位（#10）：选第一张候选，然后确认身份卡。
+    if (p.phase === "deal") {
+      const seat = p.seats.find((s) => s.id === this.seatId);
+      if (!seat) return;
+      if (!seat.roleChosen && (seat.roleOptions ?? []).length) {
+        this.queue({ kind: "chooseRole", roleId: seat.roleOptions[0] });
+        return;
+      }
+      if (!priv?.acknowledged) this.queue({ kind: "dealAck" });
+      return;
+    }
 
     if (p.phase === "dawn" && priv?.dawn?.isWitch && !priv.dawn.submitted) {
       this.lastKey = key;

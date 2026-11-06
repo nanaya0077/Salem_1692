@@ -46,6 +46,17 @@ class Bot {
   think() {
     const p = this.projection;
     if (!p || !this.room) return;
+    // 发牌相位（#10）：先选第一张候选，再确认身份卡。
+    if (p.phase === "deal") {
+      const seat = p.seats.find((s) => s.id === this.seatId);
+      if (!seat) return;
+      if (!seat.roleChosen && (seat.roleOptions ?? []).length) {
+        this.act({ kind: "chooseRole", roleId: seat.roleOptions[0] });
+        return;
+      }
+      if (!this.private?.acknowledged) this.act({ kind: "dealAck" });
+      return;
+    }
     const key = [p.phase, p.currentPlayerId, p.version, this.private?.night?.submitted, this.private?.dawn?.submitted].join(":");
     if (this.lastAct === key) return;
     if (p.phase === "dawn" && this.private?.dawn?.isWitch && !this.private.dawn.submitted) {
