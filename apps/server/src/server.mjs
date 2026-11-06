@@ -20,6 +20,7 @@ import {
   playCard,
   resolveNight,
   resolveConfig,
+  resolvePendingReveal,
   samuelTake,
   startGame,
   titubaReorder,
@@ -61,10 +62,10 @@ const AVATAR_TYPES = [
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /**
- * 时钟缝（#10）：发牌相位的截止时间与兜底计时只走 clock，生产环境就等于 Date.now/setTimeout。
+ * 时钟缝（#10 发牌、#13 扩到回合计时）：截止时间与兜底计时只走 clock，生产环境就等于 Date.now/setTimeout。
  * SALEM_FAKE_CLOCK=1 时改成手动推进（测试专用：{ type: "clock", advance: 毫秒 }），
- * 生命周期测试据此把 20 秒兜底推过去，不真实等待。只覆盖发牌相位，
- * 回合/黎明/夜晚仍走真定时器，不为测试重写调度。
+ * 生命周期测试据此把 20 秒兜底、90 秒回合上限推过去，不真实等待。
+ * 黎明/夜晚仍走真定时器，不为测试重写调度。
  */
 const FAKE_CLOCK = process.env.SALEM_FAKE_CLOCK === "1";
 let fakeNow = Date.now();
@@ -373,7 +374,7 @@ function sync(room, reissue = false) {
 }
 
 function clearTurnTimer(room) {
-  clearTimeout(room.turnTimer);
+  clock.cancel(room.turnTimer);
   room.turnTimer = null;
   room.turnDeadline = null;
 }
@@ -383,26 +384,47 @@ function armTurnTimer(room) {
   if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.winner) return;
   const actorId = room.game.currentPlayerId;
   if (!seatOf(room, actorId)) return;
-  room.turnDeadline = Date.now() + TURN_MS;
-  room.turnTimer = setTimeout(() => {
+  room.turnDeadline = clock.now() + TURN_MS;
+  room.turnTimer = clock.after(() => {
     if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.currentPlayerId !== actorId) return;
     log("turn timeout", room.code, actorId);
-    autoTakeTurn(room, "turn-timeout");
+    autoTurn(room, "turn-timeout");
   }, TURN_MS + 500);
 }
 
-function autoTakeTurn(room, reason) {
+/**
+ * 自动回合的唯一入口：回合计时到期、掉线托管、机器人托管三条路都收敛到这里（#13）。
+ * 挂起揭示也只在这里拦一处：先把选择落定，再按落定后的局面继续抽牌或交出回合。
+ */
+function autoTurn(room, reason) {
+  if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.winner) return;
+  // 挂起期抽牌/出牌/结束回合都会被规则层拒掉（reason: pending-reveal），不先揭示就整局卡死。
+  if (room.game.pendingReveal && !resolveAutoReveal(room, reason)) return;
   if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.winner) return;
   const actorId = room.game.currentPlayerId;
   const seat = seatOf(room, actorId);
   if (!seat) return;
   const first = room.game.turn.actionTaken ? endTurn(room.game) : drawTwo(room.game);
   if (!applyResult(room, first, null)) return;
+  // 抽完两张后主行动已用完，同一个人还得把回合交出去（计时/托管座位不会自己点）。
   if (room.game.phase === "action" && room.game.turn.actionTaken && room.game.currentPlayerId === actorId) {
     const second = endTurn(room.game);
     applyResult(room, second, null);
   }
   log("auto turn", room.code, actorId, reason, seat.auto ? "auto-seat" : "timer");
+}
+
+/** 自动替选择者翻第一张未揭示的身份卡：计时到期、掉线、机器人都走这一条，不等人。 */
+function resolveAutoReveal(room, reason) {
+  const pending = room.game?.pendingReveal;
+  if (!pending) return true;
+  const target = room.game.players[pending.targetId];
+  const trialIndex = target ? target.trials.findIndex((t) => !t.revealed) : -1;
+  if (trialIndex < 0) return false;
+  const result = resolvePendingReveal(room.game, pending.chooserId, { kind: "reveal", trialIndex });
+  if (!applyResult(room, result, null)) return false;
+  log("auto reveal", room.code, pending.chooserId, "->", pending.targetId, trialIndex, reason);
+  return true;
 }
 
 function botSeat(room, id) {
@@ -483,7 +505,7 @@ function runBotStep(room) {
   }
   if (botTurnSeat(room)) {
     if (botPlay(room)) return;
-    autoTakeTurn(room, "bot");
+    autoTurn(room, "bot");
   }
 }
 
@@ -503,7 +525,7 @@ function botPlay(room) {
   log("bot play", room.code, actor.id, cardId, "->", target.id);
   const current = room.game.currentPlayerId;
   if (room.game.phase === "action" && !room.game.winner && current === actor.id && room.game.turn.actionTaken) {
-    applyResult(room, endTurn(room.game), actor.id);
+    autoTurn(room, "bot");
   }
   return true;
 }
@@ -584,6 +606,8 @@ function applyResult(room, result, actorSeat = null) {
   }
   armTurnTimer(room);
   sync(room);
+  // 机器人当选择者时不等人：挂起一落定就替它翻第一张，否则整桌得干等到回合上限（#13）。
+  if (room.game?.pendingReveal && botSeat(room, room.game.pendingReveal.chooserId)) resolveAutoReveal(room, "bot-chooser");
   return true;
 }
 
@@ -713,7 +737,7 @@ function scheduleAuto(room, seat) {
     log("seat auto", room.code, seat.id);
     sync(room);
     if (room.phase === "playing" && room.game?.phase === "action" && room.game.currentPlayerId === seat.id) {
-      autoTakeTurn(room, "disconnect-auto");
+      autoTurn(room, "disconnect-auto");
     }
   }, GRACE_MS);
   room.autoTimers.set(seat.id, timer);
@@ -1035,6 +1059,12 @@ function handleAction(room, seatId, action, commandId) {
   if (action?.kind === "night") return submitNight(room, seatId, action);
   if (action?.kind === "dawn") return submitDawn(room, seatId, action.targetId);
   if (room.phase !== "playing" || room.game.phase !== "action") return sendError(seat.ws, "当前不能行动", "not-action-phase");
+  // 揭示/放弃只认选择者本人、只在挂起期生效：判据全在规则层，这里只把命令递过去。
+  // 放在「轮到你了吗」之前——挂起的是选择者，但判定谁是选择者不该由服务端再猜一遍。
+  if (action?.kind === "reveal" || action?.kind === "decline") {
+    const command = action.kind === "reveal" ? { kind: "reveal", trialIndex: action.trialIndex } : { kind: "decline" };
+    return applyResult(room, resolvePendingReveal(room.game, seatId, command), seatId);
+  }
   if (room.game.currentPlayerId !== seatId) return sendError(seat.ws, "还没轮到你", "not-your-turn");
   let result;
   if (action?.kind === "draw") result = drawTwo(room.game);
