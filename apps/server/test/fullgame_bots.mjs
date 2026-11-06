@@ -38,6 +38,7 @@ const EXPECTED_ERRORS = new Set([
   "cannot-target-self",
   "invalid-target",
   "bad-target",
+  "pending-reveal",
 ]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -228,6 +229,14 @@ class BotClient {
     if (p.phase !== "action" || p.currentPlayerId !== this.seatId) return;
     if (this.lastKey === key) return;
     this.lastKey = key;
+
+    // 挂起揭示（#13）：只有选择者的投影里才有 pendingReveal，直接取第一张未揭示的身份卡。
+    // 挂起期抽牌/出牌/结束回合都会被服务端拒掉，所以这一步必须排在动作之前。
+    if (p.pendingReveal) {
+      const slot = p.pendingReveal.slots.findIndex((s) => s === "hidden");
+      if (slot >= 0) this.queue({ kind: "reveal", trialIndex: slot });
+      return;
+    }
 
     if (p.actionTaken) {
       this.queue({ kind: "end" });
