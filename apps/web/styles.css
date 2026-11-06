@@ -227,11 +227,12 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
   .trial-card .trial-inner { transition: none; }
   .trial-card.flip-in .trial-inner { animation: none; }
 }
-/* 翻身份卡是全桌公开事件：横幅要给在场每个人递到眼前，而不是藏在日志抽屉里。 */
+/* 翻身份卡是全桌公开事件：横幅要给在场每个人递到眼前，而不是藏在日志抽屉里。
+   落在桌面正中的空白区，不压轮次条、也不挡手牌与座位。 */
 .reveal-banner {
-  position: fixed; left: 50%; top: 14px; transform: translateX(-50%);
+  position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%);
   display: flex; align-items: center; gap: 10px;
-  z-index: 60; max-width: min(92vw, 420px); padding: 8px 14px 8px 8px;
+  z-index: 60; min-width: 236px; max-width: min(92vw, 420px); padding: 8px 14px 8px 8px;
   border: 1px solid rgba(216,169,76,.55); border-radius: 12px;
   background: linear-gradient(180deg, rgba(46,26,18,.97), rgba(28,16,12,.97));
   box-shadow: 0 12px 30px rgba(0,0,0,.55);
@@ -243,8 +244,8 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .reveal-banner-kicker { font-size: 11px; color: var(--muted); line-height: 1.35; }
 .reveal-banner-title { font-size: 17px; font-weight: 700; color: var(--gold); letter-spacing: .04em; }
 @keyframes reveal-banner-in {
-  from { opacity: 0; transform: translate(-50%, -8px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translate(-50%, -58%) scale(.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
   .reveal-banner { animation: none; }

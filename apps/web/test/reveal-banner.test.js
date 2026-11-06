@@ -35,6 +35,7 @@ test("落地页与样式都给全桌提示留了挂点", async () => {
   assert.ok(html.includes('id="revealBannerTitle"'));
   const css = await web("styles.css");
   assert.match(css, /\.reveal-banner\s*\{[^}]*position:\s*fixed/);
+  assert.match(css, /\.reveal-banner\s*\{[^}]*top:\s*40%/);
 });
 
 test("只播新翻的牌：首次进入与换局都当作已读", async () => {
