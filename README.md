@@ -64,6 +64,7 @@ apps/web/         移动端 H5/PWA 客户端
 assets/cards/     中文卡牌数据与 PNG
 docs/rules/       规则书 PDF、抽取文本、卡面参考
 docs/research/    规则与平台研究笔记
+docs/ops/         Railway 发布、回滚与重启验收 runbook
 docs/wayfinder/   MAP-1 路线图、工单与 SPEC
 prototype/        12 人环形牌桌原型与截图
 ```
