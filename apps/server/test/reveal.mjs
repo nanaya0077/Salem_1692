@@ -201,6 +201,11 @@ assert.equal(
 );
 console.log("reveal ok: 翻的是第", firstHidden, "张，目标现已揭示", revealedAfter, "张");
 
+// 手动揭示：事件里不该带 auto，客户端凭这一点不加「自动取了第一个位置」的后缀。
+const manualEvent = clients[0].projection.log.filter((e) => e.type === "trialRevealed").at(-1);
+assert.equal(manualEvent?.playerId, targetId, "最后一条揭示事件应指向本次目标");
+assert.ok(!("auto" in manualEvent), "手动揭示的事件不该带 auto 字段，实际 " + JSON.stringify(manualEvent));
+
 // 重复揭示不该翻第二张（幂等：状态不变）。
 const dupVersion = clients[0].version;
 chooser.send({ type: "action", action: { kind: "reveal", trialIndex: hiddenSlots[1] } });
@@ -253,6 +258,10 @@ const drewTwo = newEvents.some((e) => e.type === "cardDrawn" && e.playerId === c
 assert.ok(!drewTwo, "挂着选择的时候抽两张：自动回合必须先揭示再继续");
 const selfAfter = waiter.projection.self;
 assert.ok(selfAfter.hand.length <= handBefore, "自动揭示不该顺手给选择者补牌（" + handBefore + " -> " + selfAfter.hand.length + "）");
+// 超时代翻：auto 由规则层写进事件本身，客户端不用再另外数日志对位。
+const autoEvent = after.log.filter((e) => e.type === "trialRevealed").at(-1);
+assert.equal(autoEvent?.playerId, target2, "最后一条揭示事件应指向本次目标");
+assert.equal(autoEvent?.auto, true, "超时自动揭示的事件必须带 auto: true，实际 " + JSON.stringify(autoEvent));
 console.log("turn timeout ok: 自动翻第", firstHidden2, "张，回合交到", after.currentPlayerId);
 
 for (const c of room2.clients) c.close();
@@ -299,6 +308,7 @@ assert.ok(botReveals.every((e) => botIds.has(e.chooserId)), "揭示事件的选�
 const revealedSeat = host.projection.seats[botReveals[0].playerId];
 assert.equal(revealedSeat.trials.length, 5, "4 人局每人应有 5 张身份卡");
 assert.ok(revealedSeat.trials.some((t) => t.revealed), "机器人选择者应已翻出第一张");
+assert.ok(botReveals.every((e) => e.auto === true), "机器人托管代翻的事件也要带 auto: true");
 console.log("bot chooser ok:", botReveals.map((e) => "选" + e.chooserId + "翻" + e.playerId).join(", "));
 
 host.close();

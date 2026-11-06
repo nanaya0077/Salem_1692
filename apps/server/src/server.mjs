@@ -293,6 +293,16 @@ function dealView(room) {
   return { acked: [...room.dealAcks].sort((a, b) => a - b), deadline: room.dealDeadline };
 }
 
+/**
+ * 挂起揭示的公开信号：谁在选、给谁选。只报这两个 id——位置与「能不能放弃」只发给选择者本人
+ * （projection.pendingReveal），这里多一个字都会把盲区漏给全桌。
+ */
+function revealWaitView(room) {
+  const pending = room.game?.pendingReveal;
+  if (!pending) return null;
+  return { chooserId: pending.chooserId, targetId: pending.targetId };
+}
+
 function privateState(room, seat) {
   const game = room.game;
   if (!game) return null;
@@ -366,6 +376,7 @@ function sync(room, reissue = false) {
       projection: project(room.game, seat.id),
       private: privateState(room, seat),
       deal: dealView(room),
+      revealWait: revealWaitView(room),
       room: pub,
       ...(reissue ? { resync: mine(seat) } : {}),
     });
@@ -421,7 +432,9 @@ function resolveAutoReveal(room, reason) {
   const target = room.game.players[pending.targetId];
   const trialIndex = target ? target.trials.findIndex((t) => !t.revealed) : -1;
   if (trialIndex < 0) return false;
-  const result = resolvePendingReveal(room.game, pending.chooserId, { kind: "reveal", trialIndex });
+  // auto: true 直接写进规则层的 trialRevealed 事件，日志句自己就能说明是自动取的第一个位置。
+  const result = resolvePendingReveal(room.game, pending.chooserId, { kind: "reveal", trialIndex }, { auto: true });
+  if (!result.ok) return false;
   if (!applyResult(room, result, null)) return false;
   log("auto reveal", room.code, pending.chooserId, "->", pending.targetId, trialIndex, reason);
   return true;

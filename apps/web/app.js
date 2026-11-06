@@ -1,5 +1,6 @@
 import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE } from "./table-view.js";
 import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
+import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText } from "./reveal-view.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -31,6 +32,7 @@ const S = {
   dawnKey: null,
   dawnTarget: null,
   deal: null,
+  revealWait: null,
   dealFlipped: new Set(),
   dealKey: null,
   toastTimer: null,
@@ -186,6 +188,11 @@ function isHost() {
   return S.room?.hostSeat === S.seatId;
 }
 
+/** 挂起揭示期谁都动不了：选择者要选位置，其他人等；规则层同样会拒（pending-reveal）。 */
+function revealLocked() {
+  return actionsLocked({ pendingReveal: S.projection?.pendingReveal, revealWait: S.revealWait });
+}
+
 function myTurn() {
   return S.projection?.phase === "action" && S.projection.currentPlayerId === S.seatId;
 }
@@ -276,7 +283,9 @@ function handle(msg) {
       S.projection = msg.projection;
       S.private = msg.private;
       S.deal = msg.deal ?? null;
-      if (msg.room) S.room = msg.room;
+      // 挂起揭示的公开信号在消息顶层：选择者另有 projection.pendingReveal，其他人只有这一条。
+      S.revealWait = msg.revealWait ?? null;
+          if (msg.room) S.room = msg.room;
       render();
       break;
     case "events":
@@ -523,6 +532,7 @@ function renderGame() {
     return;
   }
   const my = p.self;
+  const locked = actionsLocked({ pendingReveal: p.pendingReveal, revealWait: S.revealWait });
   const opponents = p.seats.filter((s) => s.id !== S.seatId);
   $("opponents").innerHTML = opponents.map((player) => {
     const classes = ["seat-card"];
@@ -550,7 +560,7 @@ function renderGame() {
 
   $("hand").innerHTML = (my.hand ?? []).map((id) => {
     const c = card(id);
-    return '<button class="card ' + c.color + '" data-card="' + esc(id) + '" title="' + esc(c.name) + '">' +
+    return '<button class="card ' + c.color + '"' + (locked ? " disabled" : "") + ' data-card="' + esc(id) + '" title="' + esc(c.name) + '">' +
       (c.image ? '<img src="/' + esc(c.image) + '" alt="" loading="lazy" />' : "") +
       (c.points ? '<span class="pts">' + c.points + "</span>" : "") +
       '<span class="label">' + esc(c.name) + "</span></button>";
@@ -573,7 +583,11 @@ function renderGame() {
   else if (p.phase === "gameOver") hint = "对局结束";
   $("centerHint").textContent = hint;
 
-  if (p.phase === "action" && myTurn()) {
+  if (p.phase === "action" && locked) {
+    // 挂起揭示期抽牌 / 出牌 / 结束回合都会被规则层拒（pending-reveal），按钮先禁掉。
+    $("actionBar").innerHTML = '<button class="btn primary" data-act="end" disabled>结束回合</button>' +
+      '<button class="btn gold" data-act="draw" disabled>抽 2 张并结束</button>';
+  } else if (p.phase === "action" && myTurn()) {
     if (p.actionTaken) {
       $("actionBar").innerHTML = '<button class="btn primary" data-act="end">结束回合</button>';
     } else {
@@ -591,6 +605,7 @@ function renderGame() {
     $("actionBar").innerHTML = "";
   }
 
+  renderRevealBar();
   renderTargetBanner();
   renderLog();
 }
@@ -712,6 +727,49 @@ function renderPower() {
   confirm.disabled = order.length < 2;
 }
 
+/**
+ * 挂起揭示的条形区：选择者在这里点位置（丹福斯对普通玩家第 6 点还能放弃），
+ * 其他人只看到「等待 X 选择」。位置条按目标面前的身份卡张数渲染，已揭示的位置直接禁用；
+ * 揭示一落定服务端就不再发挂起态，整条自己消失。
+ */
+function renderRevealBar() {
+  const bar = $("revealBar");
+  const view = S.projection?.pendingReveal ?? null;
+  if (view) {
+    const target = S.projection.seats.find((seat) => seat.id === view.targetId);
+    const trials = target?.trials ?? [];
+    const slots = slotView(view.slots).map((slot) => {
+      const trial = trials[slot.index];
+      const face = slot.revealed ? card(trialFaceCardId(trial?.kind ?? "townspeople")) : null;
+      const image = face && face.image ? face.image : TRIAL_BACK_IMAGE;
+      const caption = slot.revealed ? (face?.name ?? slot.label) : "#" + (slot.index + 1);
+      return '<button type="button" class="reveal-slot' + (slot.revealed ? " revealed " + trialTone(trial?.kind) : "") +
+        '"' + (slot.disabled ? " disabled" : "") + ' data-reveal-index="' + slot.index +
+        '" aria-label="' + esc(caption) + '">' +
+        (image ? '<img src="/' + esc(image) + '" alt="" loading="lazy" draggable="false" />' : "") +
+        '<span class="reveal-slot-cap">' + esc(caption) + "</span></button>";
+    }).join("");
+    bar.className = "reveal-bar choosing";
+    bar.innerHTML = '<div class="reveal-head"><span class="reveal-title">选择揭示位置：' +
+      esc(seatName(view.targetId)) + " 面前的身份卡</span>" +
+      (canDecline(view) ? '<button type="button" class="btn tiny ghost" data-reveal-decline>放弃</button>' : "") +
+      "</div>" +
+      '<div class="reveal-slots">' + slots + "</div>";
+    bar.hidden = false;
+    return;
+  }
+  const waiting = revealWaitText(S.revealWait, seatName);
+  if (!waiting) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    return;
+  }
+  bar.className = "reveal-bar waiting";
+  bar.innerHTML = '<div class="reveal-head"><span class="reveal-title">' + esc(waiting) + "</span></div>" +
+    '<p class="reveal-hint">选好位置后目标那张会立刻翻开；这期间抽牌、出牌与结束回合都不可用。</p>';
+  bar.hidden = false;
+}
+
 function renderTargetBanner() {
   const banner = $("targetBanner");
   if (!S.pending) {
@@ -756,7 +814,7 @@ function formatEvent(e) {
     case "cardNullified": return cn(e.cardId) + " 被莎拉·古德免疫，立刻丢弃。";
     case "accusationAdded": return n(e.targetId) + " 面前 +" + e.points + " 点（" + esc(card(e.cardId).name) + "），共 " + e.total + " 点。";
     case "accusationsDiscarded": return n(e.playerId) + " 弃掉 " + e.count + " 张指控。";
-    case "trialRevealed": return n(e.playerId) + " 翻开一张身份卡：" + esc(trialLabel(e.kind)) + "（" + esc(e.cause) + "）。";
+    case "trialRevealed": return esc(revealLogText(e, { nameOf: seatName, label: trialLabel }));
     case "playerDied": return '<span class="red">' + n(e.playerId) + " 死亡（" + esc(e.cause) + "）。</span>";
     case "handDiscarded": return n(e.playerId) + " 弃掉 " + e.count + " 张手牌。";
     case "handTransferred": return n(e.fromId) + " 的 " + e.count + " 张手牌交给 " + n(e.toId) + "。";
@@ -906,6 +964,7 @@ function closeModal() {
 
 function beginPlay(cardId, asWitness = false, useAbigail = false) {
   if (!myTurn()) { toast("还没轮到你"); return; }
+  if (revealLocked()) { toast("先等这次揭示选完位置"); return; }
   const c = card(cardId);
   if (c.target === "two") {
     S.pending = { cardId, asWitness, useAbigail, stage: "source" };
@@ -933,6 +992,7 @@ function sendPlay(cardId, targetId, sourceId, asWitness, useAbigail = false, blu
 }
 
 function onSeatClick(id) {
+  if (revealLocked()) return;
   if (!S.pending) return;
   const c = card(S.pending.cardId);
   if (S.pending.stage === "source") {
@@ -1083,6 +1143,15 @@ function bind() {
     const el = event.target.closest("[data-trial]");
     if (!el) return;
     openTrialModal(Number(el.dataset.trial));
+  });
+  $("revealBar").addEventListener("click", (event) => {
+    const decline = event.target.closest("[data-reveal-decline]");
+    if (decline) { act({ kind: "decline" }); return; }
+    const slot = event.target.closest("[data-reveal-index]");
+    if (!slot || slot.disabled) return;
+    const trialIndex = Number(slot.dataset.revealIndex);
+    if (!Number.isInteger(trialIndex)) return;
+    act({ kind: "reveal", trialIndex });
   });
   $("opponents").addEventListener("click", (event) => {
     const button = event.target.closest("[data-seat]");
