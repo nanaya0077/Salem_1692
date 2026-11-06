@@ -53,9 +53,11 @@ node apps/server/test/reveal.mjs
 BASE=http://127.0.0.1:8080 node apps/server/test/bots_add.mjs
 BASE=http://127.0.0.1:8080 GAMES=3 node apps/server/test/fullgame_bots.mjs
 BASE=http://127.0.0.1:8080 node apps/server/test/profile.mjs
+# 或一次跑完八个脚本：自起「假时钟」与「真时钟」两组服务，按组错开端口
+node apps/server/test/run-suite.mjs
 ```
 
-服务端测试脚本都是「先起服务、再连端口」的端到端脚本，不是 `node --test` 用例：先 `node apps/server/src/server.mjs`，端口用 `PORT` 指定，测试脚本用 `BASE` 指向同一端口（两者要一致，否则连到别的服务）。`deal.mjs` 与 `reveal.mjs` 用 `SALEM_FAKE_CLOCK=1` 起服务才推得动倒计时，`reveal.mjs` 另需把 `DAWN_MS` 调小。当前规则测试 52 条全过，含 12 人 48 seed 随机对局 soak（牌张守恒、投影零泄漏、能到终局；可用 `SOAK_SEEDS=300` 扩压）；`smoke.mjs` 会自建 4 人房走完创建、加入、准备、开局、黎明、抽牌；`lifecycle.mjs` 覆盖大厅踢人、对局中断线 token 重连、房主转移；`bots_add.mjs` 验证房主加 3 个机器人后可开局、机器人自动过回合；`fullgame_bots.mjs` 用 12 个 WebSocket 客户端自动建房、准备、抽牌/出牌、黎明/夜晚投票直到终局，逐局输出房间、耗时、胜方与错误汇总，`GAMES` 控制局数。
+服务端测试脚本都是「先起服务、再连端口」的端到端脚本，不是 `node --test` 用例：先 `node apps/server/src/server.mjs`，端口用 `PORT` 指定，测试脚本用 `BASE` 指向同一端口（两者要一致，否则连到别的服务）。`deal.mjs` 与 `reveal.mjs` 用 `SALEM_FAKE_CLOCK=1` 起服务才推得动倒计时，`reveal.mjs` 另需把 `DAWN_MS` 调小。当前规则测试 52 条全过，含 12 人 48 seed 随机对局 soak（牌张守恒、投影零泄漏、能到终局；可用 `SOAK_SEEDS=300` 扩压）；`smoke.mjs` 会自建 4 人房走完创建、加入、准备、开局、黎明、抽牌；`lifecycle.mjs` 覆盖大厅踢人、对局中断线 token 重连、房主转移；`bots_add.mjs` 验证房主加 3 个机器人后可开局、机器人自动过回合；`fullgame_bots.mjs` 用 12 个 WebSocket 客户端自动建房、准备、抽牌/出牌、黎明/夜晚投票直到终局，逐局输出房间、耗时、胜方与错误汇总，`GAMES` 控制局数；`profile.mjs` 覆盖座位级资料（改名同时写进 room 与投影、连续写第二条静默丢弃、头像只收 WebP/JPEG 且解码后 ≤96KB、PNG 前缀与坏魔数一律 `avatar-invalid`、超限与非法都不改动座位、welcome 带全量头像表、移除后 welcome 不再带该座位）；`run-suite.mjs` 把八个脚本按「假时钟」与「真时钟」两组各起一个服务跑完，`PORT_BASE` 控制起始端口（默认 8190）。
 
 ## 目录
 
