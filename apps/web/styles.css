@@ -193,6 +193,11 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .self-main { flex: 1; min-width: 0; }
 .self-name { font-size: 13px; font-weight: 700; }
 .self-role { font-size: 11px; color: var(--gold); margin-top: 2px; }
+/* 自己角色卡的技能效果：两行截断，完整文案点开角色卡看。 */
+.self-ability {
+  font-size: 11px; line-height: 1.4; color: var(--muted); margin-top: 3px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .self-trials { display: flex; gap: 4px; flex-wrap: wrap; }
 /* 自己那排身份卡：横向滚动卡片条，整条占满自己那一栏的第二行。 */
 .self-panel { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
@@ -304,6 +309,11 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .card-copy p { font-size: 18px; line-height: 1.6; color: var(--parchment); margin: 0; }
 .card-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; }
 .power-panel { width: min(460px, 100%); }
+/* 角色卡信息面：牌面比手牌小一档，技能文案按正文读。 */
+.role-detail { width: min(400px, 100%); }
+.role-detail img { max-height: 34dvh; }
+.role-detail .card-copy p { font-size: 15px; line-height: 1.65; }
+.role-detail #roleMeta { margin: 10px 0 0; }
 .power-list { display: flex; flex-direction: column; gap: 6px; max-height: 48dvh; overflow-y: auto; padding: 4px 0 8px; }
 .power-row {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 11px; text-align: left;

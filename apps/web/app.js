@@ -108,6 +108,47 @@ function roleName(id) {
   return roleCardName(id) ?? (id && id !== "none" ? id : "无角色");
 }
 
+/** 角色卡的技能文案：只认 cards.zh.json 里角色条目的 text，取不到就是空串。 */
+function roleAbility(id) {
+  if (!id || id === "none") return "";
+  return S.cards.get(id)?.text ?? "";
+}
+
+/** 角色卡牌面资源的站内路径；取不到就是空串，由调用方退回纯文字面板。 */
+function roleImage(id) {
+  if (!id || id === "none") return "";
+  const image = S.cards.get(id)?.image ?? "";
+  return image ? "/" + image : "";
+}
+
+/** 自己面板上的技能行：没有角色或没有文案时整行不出，避免留白。 */
+function selfAbilityLine(role) {
+  const text = roleAbility(role);
+  if (!text) return "";
+  return '<div class="self-ability">' + esc(text) + "</div>";
+}
+
+/** 座位信息：对外投影优先（带 role / alive / trials），退回房间座位表。 */
+function seatInfo(id) {
+  return S.projection?.seats?.find((s) => s.id === id) ?? S.room?.seats?.find((s) => s.id === id) ?? null;
+}
+
+/** 角色卡弹窗底部的状态行：存活、指控点数、身份卡揭示进度。 */
+function seatMetaText(seat, seatId) {
+  if (!seat) return "";
+  const parts = [];
+  if (seatId === S.seatId) parts.push("你");
+  parts.push(seat.alive === false ? "已死亡" : "存活");
+  const accusations = Array.isArray(seat.accusations) ? seat.accusations.length : (seat.accusations ?? 0);
+  if (accusations) parts.push("指控 " + accusations + " 点");
+  const trials = seat.trials ?? [];
+  if (trials.length) {
+    const revealed = trials.filter((t) => t.revealed === true).length;
+    parts.push("身份卡 已揭示 " + revealed + " / " + trials.length);
+  }
+  return parts.join(" · ");
+}
+
 function seatName(id) {
   const fromRoom = S.room?.seats?.find((s) => s.id === id);
   if (fromRoom) return fromRoom.name;
@@ -502,6 +543,32 @@ function openTrialModal(index) {
   openCardModal(trialFaceCardId(trial.kind ?? "townspeople"));
 }
 
+/** 角色卡信息面：自己与别人都能点开看技能效果，只读，不改对局状态。 */
+function openRoleInfo(seatId) {
+  const seat = seatInfo(seatId);
+  const role = seat?.role ?? "none";
+  const image = roleImage(role);
+  const box = $("roleImage");
+  if (image) {
+    box.src = image;
+    box.hidden = false;
+  } else {
+    box.removeAttribute("src");
+    box.hidden = true;
+  }
+  $("roleKicker").textContent = seatId === S.seatId ? "你的角色卡" : (seat?.name ? seat.name + " 的角色卡" : "角色卡");
+  $("roleTitle").textContent = roleName(role);
+  $("roleText").textContent = roleAbility(role) || "这张角色卡没有可查看的技能文案。";
+  $("roleMeta").textContent = seatMetaText(seat, seatId);
+  const modal = $("roleModal");
+  modal.hidden = false;
+  modal.querySelector(".modal-close")?.focus();
+}
+
+function closeRoleInfo() {
+  $("roleModal").hidden = true;
+}
+
 function dealSeatRow(seat) {
   const role = dealSeatStatus(seat, roleCardName);
   const backs = Array.from({ length: (seat.trials ?? []).length }, () => '<span class="deal-back"></span>').join("");
@@ -624,7 +691,8 @@ function renderGame() {
   $("selfPanel").innerHTML =
     avatarChip(S.seatId, seatName(S.seatId)) +
     '<div class="self-main"><div class="self-name">' + esc(seatName(S.seatId)) + " · 你</div>" +
-    '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div></div>" +
+    '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div>" +
+    selfAbilityLine(my.role) + "</div>" +
     '<div class="self-trials trial-strip">' + trialStrip(my.trials) + "</div>";
 
   $("hand").innerHTML = (my.hand ?? []).map((id) => {
@@ -1040,8 +1108,14 @@ function loadProfileEntry() {
 }
 
 function openProfile() {
+  // 开局后不再改昵称与头像：中途改名会让座位表、日志与别人的印象全部对不上。
+  if (S.room && S.room.phase !== "lobby") {
+    toast("对局进行中不能改昵称与头像");
+    return;
+  }
   const name0 = loadProfileEntry();
-  const avatar0 = S.avatars?.[S.seatId] ?? profileStore.readAvatar();
+  const stored = S.avatars instanceof Map ? S.avatars.get(S.seatId) : S.avatars?.[S.seatId];
+  const avatar0 = stored ?? profileStore.readAvatar();
   profileDraft = { name0, avatar0, avatar: avatar0 };
   $("profileName").value = name0;
   $("profileHint").textContent = "";
@@ -1307,8 +1381,11 @@ function sendPlay(cardId, targetId, sourceId, asWitness, useAbigail = false, blu
 }
 
 function onSeatClick(id) {
+  if (!S.pending) {
+    openRoleInfo(id);
+    return;
+  }
   if (revealLocked()) return;
-  if (!S.pending) return;
   const c = card(S.pending.cardId);
   if (S.pending.stage === "source") {
     if (id === S.seatId) { toast("来源不能是自己"); return; }
@@ -1526,8 +1603,11 @@ function bind() {
   });
   $("selfPanel").addEventListener("click", (event) => {
     const el = event.target.closest("[data-trial]");
-    if (!el) return;
-    openTrialModal(Number(el.dataset.trial));
+    if (el) {
+      openTrialModal(Number(el.dataset.trial));
+      return;
+    }
+    openRoleInfo(S.seatId);
   });
   $("revealBar").addEventListener("click", (event) => {
     const decline = event.target.closest("[data-reveal-decline]");
@@ -1643,11 +1723,10 @@ function bind() {
   });
   document.querySelectorAll("[data-close-modal]").forEach((el) => el.addEventListener("click", closeModal));
   $("openProfileLanding").addEventListener("click", openProfile);
-  $("selfPanel").addEventListener("click", openProfile);
   $("selfPanel").addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    openProfile();
+    openRoleInfo(S.seatId);
   });
   $("profilePick").addEventListener("click", () => $("profileFile").click());
   $("profileFile").addEventListener("change", onProfileFileChange);
@@ -1660,8 +1739,11 @@ function bind() {
   $("profileSave").addEventListener("click", saveProfile);
   $("profileName").addEventListener("input", renderProfilePreview);
   document.querySelectorAll("[data-close-profile]").forEach((el) => el.addEventListener("click", closeProfile));
+  document.querySelectorAll("[data-close-role]").forEach((el) => el.addEventListener("click", closeRoleInfo));
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !$("profileModal").hidden) closeProfile();
+    if (event.key !== "Escape") return;
+    if (!$("profileModal").hidden) closeProfile();
+    if (!$("roleModal").hidden) closeRoleInfo();
   });
   $("nightTargets").addEventListener("click", (event) => {
     const button = event.target.closest("[data-night-target]");

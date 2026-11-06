@@ -102,7 +102,7 @@
           <div id="phaseText" class="phase-text">等待开局</div>
           <div id="centerHint" class="center-hint"></div>
         </div>
-        <div id="selfPanel" class="self-panel" role="button" tabindex="0" title="编辑个人资料"></div>
+        <div id="selfPanel" class="self-panel" role="button" tabindex="0" title="查看你的角色卡"></div>
         <div id="hand" class="hand" aria-label="手牌"></div>
         <div id="actionBar" class="action-bar"></div>
       </main>
@@ -217,6 +217,23 @@
         <div class="card-actions">
           <button id="powerConfirm" class="btn primary">确认</button>
           <button class="btn ghost" data-close-power>取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="roleModal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-role></div>
+      <div class="card-detail role-detail" role="dialog" aria-modal="true" aria-labelledby="roleTitle">
+        <button class="modal-close" type="button" data-close-role aria-label="关闭角色卡">×</button>
+        <img id="roleImage" alt="" />
+        <div class="card-copy">
+          <div class="card-kicker" id="roleKicker">角色卡</div>
+          <h2 id="roleTitle"></h2>
+          <p id="roleText"></p>
+        </div>
+        <p id="roleMeta" class="muted small"></p>
+        <div class="card-actions">
+          <button class="btn ghost" type="button" data-close-role>关闭</button>
         </div>
       </div>
     </div>

@@ -2,7 +2,8 @@
 // 否则已装过旧版的浏览器会一直跑旧脚本，线上等于没修。
 // salem-v6：合入头像/座位资料线——avatar-normalize.js 与 profile-store.js 也进缓存清单，
 // 与 reconnect/table-view/deal-view/reveal-view 一并同版本发布。
-const VERSION = "salem-v6";
+// salem-v7：角色卡信息面（index.html 的 #roleModal 与 app.js 的技能行）进壳。
+const VERSION = "salem-v7";
 const SHELL = [
   "/",
   "/styles.css",
