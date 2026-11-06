@@ -16,7 +16,7 @@
 | 服务 | `salem-online` / `bb45b318-2ee6-4448-9063-fd6f36e8d47c` |
 | 环境 | `production` / `2dcec8b2-89bb-4258-a198-46f12a54f21a` |
 | 构建 | `builder: DOCKERFILE`、`dockerfilePath: /Dockerfile` |
-| 构建 commit | 线上现役 `49057d3`（角色卡浮层与开局锁资料，部署 `97f2772a-…`）；同一环境里还留着 `e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）三份可回滚部署 |
+| 构建 commit | 线上现役 `33b9e5e`（线下模式，部署 `4e2cfb93-…`）；同一环境里还留着 `49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）四份可回滚部署 |
 | 副本 | `numReplicas: 1` |
 | 区域 | `multiRegionConfig: { asia-southeast1-eqsg3a: { numReplicas: 1 } }`（Singapore 单区） |
 | 健康检查 | `healthcheckPath: /health`，`healthcheckTimeout: 300` 秒 |
@@ -66,7 +66,7 @@
 - 部署 id `5bc7089f-3818-4632-a6c5-f80d1f6b3277`，`createdAt 2026-11-06T02:57:21.113Z`，`BUILDING → DEPLOYING → SUCCESS`；`meta.commitHash 3c751aeb364c7daee623ed0a0457156d30b15d6b`、`imageDigest sha256:c613880105a1…`、`builder DOCKERFILE`、`dockerfilePath /Dockerfile`。
 - 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":18.98}`（与 18 秒前的发布对齐）；`deploy-smoke.mjs` **9/9 通过**（首页 8581 bytes、建房 `598TNQ`、`wss://` 握手 101）；`/reconnect.js` 200（2764 bytes，含 `ROOM_GONE_MESSAGE`）、`/sw.js` 报 `salem-v2`、首页含 `id="reopenBtn"` —— 三项一起证明线上跑的就是 #19 之后的代码，不是缓存里的旧前端。
 
-历史记录（供以后判断「线上是不是新版」参考）：本次发布之前，线上那份部署的构建 commit 是 `4686b6d`，早于 #19，首页缺「重新开房」按钮、也没有 `/reconnect.js`。所以「重启后旧房码失效」只能在**发布一次之后**验，否则验到的是没有终态提示的旧前端。判断线上版本的廉价探针：`/reconnect.js` 是否 200、`/sw.js` 里的 `salem-vN`、首页是否含 `id="reopenBtn"`；要判「发牌确认线与座位资料线在不在」，再加 `/deal-view.js`、`/reveal-view.js`、`/table-view.js`、`/profile-store.js`、`/avatar-normalize.js` 五个是否 200（`e720751` 之前它们全是 404）。
+历史记录（供以后判断「线上是不是新版」参考）：本次发布之前，线上那份部署的构建 commit 是 `4686b6d`，早于 #19，首页缺「重新开房」按钮、也没有 `/reconnect.js`。所以「重启后旧房码失效」只能在**发布一次之后**验，否则验到的是没有终态提示的旧前端。判断线上版本的廉价探针：`/reconnect.js` 是否 200、`/sw.js` 里的 `salem-vN`、首页是否含 `id="reopenBtn"`；要判「发牌确认线与座位资料线在不在」，再加 `/deal-view.js`、`/reveal-view.js`、`/table-view.js`、`/profile-store.js`、`/avatar-normalize.js` 五个是否 200（`e720751` 之前它们全是 404）；要判「线下模式在不在」，看首页有没有 `id="offlineMode"`、`/sw.js` 是否 `salem-v8` 及以上。
 
 ## 回滚一次
 
@@ -131,6 +131,14 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 - 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":88.89}`；`deploy-smoke.mjs` **9/9 通过**（建房 `Q9G2U2`、`wss://` 握手 101）；角色卡牌面 `assets/cards/zh/{mary-warren,thomas-danforth,abigail-williams,cotton-mather,john-proctor}.png` 五个全 200（471–492 KB），说明浮层图片路径在线上可达。
 - 本地真浏览器实拍（390×844，房间 `3755DV`，`docs/acceptance/shots/live-role-info-self.png`、`live-role-info-role.png`）：自己面板在「玛丽·沃伦 · 指控 2 点」下方多出技能行「免疫情侣与黑猫的负面效果。」；点自己面板空白处弹出「你的角色卡 / 玛丽·沃伦 / 技能 / 你 · 存活 · 指控 2 点 · 身份卡 已揭示 0 / 5」并带牌面；点对手座位弹出「机器人1 的角色卡 / 托马斯·丹福斯 / 第 6（或 7）点指控时可翻对方一张身份卡。」；点自己身份卡只开卡详情，`#roleModal` 与 `#profileModal` 都不开——两弹窗互相抢的问题消失。
 
+**证据位 E6（发布 `33b9e5e`：建房可开线下模式）· 已回填 2026-11-06**：
+- 发布对象 `main` @ `33b9e5e`（`feat: 建房可开「线下模式」，全程不设倒计时`）。
+- 调用 `serviceInstanceDeployV2(commitSha: "33b9e5e487309bc1883a5bc0a8ba4a46281593b0", …)` → 部署 `4e2cfb93-11a5-4e9a-989b-123fe8411a41`。
+- 版本探针（发布前 → 发布后）：`/sw.js` `salem-v7` → **`salem-v8`**（2550 bytes）；首页 12895 → **12268 bytes**，含 `id="offlineMode"`（文案「线下模式面对面打牌，不设任何倒计时」）与 `id="offlineBadge"`；`/app.js` 75234 bytes，含「 · 不限时」与从 `S.room` 读 offline 的写法；`/deal-view.js`、`/reveal-view.js`、`/table-view.js`、`/profile-store.js`、`/avatar-normalize.js`、`/reconnect.js` 六个仍全 200。
+- 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":13.97}`；`deploy-smoke.mjs` **9/9 通过**（建房 `KJYBRS`、`wss://` 握手 101）。
+- 线上真浏览器实拍（390×844，`docs/acceptance/shots/live-offline-landing.png`、`live-offline-lobby.png`、`live-offline-turn.png`）：落地页勾上「线下模式」→ 建房 `9X64RB`（`room.offline === true`）→ 大厅出现「线下模式 · 全程不限时」→ 加 3 个机器人开局 → 发牌屏「发牌 · 不限时」、`#dealTimer` 写「不限时」→ 选角色并确认后进白天，回合徽标「轮到 你 · 不限时」，`#dawnTimer` 与 `#nightTimer` 同为「不限时」。
+- 本地补充证据（`PORT=8087`，房间 `W2TKSL`）：黎明相位停留 20 秒以上原地不动、`private.dawn.deadline` 缺失；对照的普通房 45 秒兜底照旧；服务端 `offline.mjs` 四段推时钟同样证明线下房不会自己往下走。
+
 ## 看日志与排障
 
 - 运行日志在服务 → Logs；客户端连不上的第一件事是看有没有 `salem server listening` 行、有没有进程崩溃栈。
@@ -169,6 +177,7 @@ $env:BASE="http://127.0.0.1:8137"; node apps/server/test/deploy-smoke.mjs
 | 冒烟脚本对公网跑通 | 已通过 | 2026-11-06 共跑 4 次（发布后、回滚后、复位后）：每次 9 项全 ok |
 | 发牌确认线与座位资料线已上线 | 已通过 2026-11-06 | 证据位 E4：部署 `e68d9de2-…` / commit `e720751` / 五个前端模块从 404 变 200、`/sw.js` 变 `salem-v6`、冒烟 9/9、真浏览器发牌屏出角色候选 |
 | 角色卡浮层与开局锁资料已上线 | 已通过 2026-11-06 | 证据位 E5：部署 `97f2772a-…` / commit `49057d3` / `/sw.js` 变 `salem-v7`、首页含 `id="roleModal"`、五个角色牌面 200、冒烟 9/9、真浏览器技能行与三种点击实测 |
+| 线下模式已上线（建房勾选后全程无倒计时） | 已通过 2026-11-06 | 证据位 E6：部署 `4e2cfb93-…` / commit `33b9e5e` / `/sw.js` 变 `salem-v8`、首页含 `id="offlineMode"`、冒烟 9/9、真浏览器从建房到白天全程「不限时」 |
 
 公网冒烟实测输出（2026-11-06，发布 `3c751ae` 之后立刻跑，`/health` 报 `uptime` 约 19 秒，与发布时刻对齐）：
 
