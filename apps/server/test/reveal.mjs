@@ -29,7 +29,7 @@ class Client {
       const msg = JSON.parse(raw.toString());
       if (msg.type === "welcome") { this.seatId = msg.seatId; this.code = msg.code; }
       if (msg.type === "room") this.room = msg.room;
-      if (msg.type === "projection") { this.projection = msg.projection; this.private = msg.private; this.room = msg.room ?? this.room; }
+      if (msg.type === "projection") { this.projection = msg.projection; this.private = msg.private; this.room = msg.room ?? this.room; this.revealWait = msg.revealWait ?? null; }
       if (msg.type === "error") this.errors.push(msg);
       if (msg.type === "clock") this.clockReplies.push(msg);
     });
@@ -143,10 +143,36 @@ assert.ok(
   clients.filter((c) => c !== chooser).every((c) => !c.projection.pendingReveal),
   "挂起只该投给选择者，别人的投影里不该有 pendingReveal",
 );
+// 零泄漏：旁观者只拿到「谁在选、目标是谁」，位置内容、卡 id 与卡面一个字节都不该出现。
+for (const c of clients.filter((x) => x !== chooser)) {
+  const wait = c.revealWait;
+  assert.ok(wait, "非选择者应看到「等待 X 选择」的挂起提示");
+  assert.deepEqual(
+    Object.keys(wait).sort(),
+    ["chooserId", "targetId"],
+    "等待提示只该带 chooserId 与 targetId，实际 " + Object.keys(wait).join(","),
+  );
+  assert.equal(wait.chooserId, chooser.seatId, "等待提示的 chooserId 应是选择者");
+  assert.equal(wait.targetId, targetId, "等待提示的 targetId 应是目标");
+  const raw = JSON.stringify(c.projection) + JSON.stringify(c.revealWait);
+  for (const key of ["pendingReveal", "trialIndex", "trialId"]) {
+    assert.ok(!raw.includes('"' + key + '"'), "旁观者投影里不该出现禁用键 " + key);
+  }
+}
+const viewerSeat = clients[0].seatId;
+const allTrials = clients[0].projection.seats.filter((s) => s.id !== viewerSeat).flatMap((s) => s.trials);
+const hiddenTrials = allTrials.filter((t) => !t.revealed);
+for (const t of hiddenTrials) {
+  assert.equal(t.kind, null, "未揭示的身份卡不该带 kind，实际 " + t.kind);
+  assert.ok(String(t.id).startsWith("hidden-"), "未揭示的身份卡 id 应是占位，实际 " + t.id);
+}
+console.log("leak ok: 旁观者只拿到 chooserId/targetId，未揭示身份卡", hiddenTrials.length, "张全是占位 id");
+
 const hiddenSlots = pending.slots.map((s, i) => (s === "hidden" ? i : -1)).filter((i) => i >= 0);
 assert.ok(hiddenSlots.length >= 2, "挂起的前提是至少两张未揭示身份卡，实际 " + hiddenSlots.length);
 
 const revealedBefore = clients[0].projection.seats[targetId].trials.filter((t) => t.revealed).length;
+const revealEventsBefore = clients[0].projection.log.filter((e) => e.type === "trialRevealed" && e.playerId === targetId).length;
 const versionBefore = clients[0].version;
 const bystander = clients.find((c) => c !== chooser);
 const bystanderErrors = bystander.errors.length;
@@ -178,7 +204,7 @@ chooser.send({ type: "action", action: { kind: "draw" } });
 chooser.send({ type: "action", action: { kind: "end" } });
 await sleep(200);
 const chooserReasons = chooser.errors.slice(chooserErrors).map((e) => e.reason);
-assert.deepEqual(chooserReasons, ["pending-reveal", "pending-reveal"], "挂起期选择者不该能抽牌或结束回合");
+assert.deepEqual(chooserReasons, ["reveal-pending", "reveal-pending"], "挂起期选择者不该能抽牌或结束回合");
 assert.equal(clients[0].version, versionBefore, "被拒的命令不该改动对局状态");
 chooser.send({ type: "action", action: { kind: "reveal", trialIndex: 99 } });
 await sleep(150);
@@ -193,7 +219,16 @@ chooser.send({ type: "action", action: { kind: "reveal", trialIndex: firstHidden
 await waitFor("挂起解除", () => !chooser.projection.pendingReveal, 5000);
 await waitFor("揭示落定", () => clients[0].projection.seats[targetId].trials[firstHidden].revealed, 5000);
 const revealedAfter = clients[0].projection.seats[targetId].trials.filter((t) => t.revealed).length;
-assert.equal(revealedAfter, revealedBefore + 1, "揭示应正好翻一张");
+const revealEventsAfter = clients[0].projection.log.filter((e) => e.type === "trialRevealed" && e.playerId === targetId).length;
+// 翻出女巫会触发死亡结算：剩下的身份卡会被一并摊开，事件因此可能多于一条，
+// 但「本次揭示只翻一张」这件事只在没打死人时才可断言。终局更会摊开全场。
+const winner = Boolean(clients[0].projection.winner);
+const died = clients[0].projection.seats[targetId].alive === false;
+assert.ok(revealEventsAfter >= revealEventsBefore + 1, "本次揭示至少要有一条事件");
+if (!winner && !died) {
+  assert.equal(revealEventsAfter, revealEventsBefore + 1, "没打死人时揭示事件应正好一条");
+  assert.equal(revealedAfter, revealedBefore + 1, "揭示应正好翻一张");
+}
 assert.equal(
   clients.filter((c) => c.projection.seats[targetId].trials[firstHidden].revealed).length,
   clients.length,
@@ -240,13 +275,11 @@ assert.ok(room2.clients[0].clockReplies.at(-1).fired >= 1, "推进假时钟应�
 
 await waitFor("挂起自动解除", () => !waiter.projection.pendingReveal, 6000);
 await waitFor("自动揭示落定", () => room2.clients[0].projection.seats[target2].trials[firstHidden2].revealed, 6000);
-const revealedAuto = room2.clients[0].projection.seats[target2].trials.filter((t) => t.revealed).length;
-assert.equal(revealedAuto, 1, "自动回合只该翻一张（第一张未揭示的）");
-assert.equal(
-  room2.clients[0].projection.seats[target2].trials.findIndex((t) => t.revealed),
-  firstHidden2,
-  "自动揭示应取第一张未揭示的身份卡",
-);
+const seat2 = room2.clients[0].projection.seats[target2];
+const revealedAuto = seat2.trials.filter((t) => t.revealed).length;
+// 打死人时死亡结算会把剩下的身份卡一并摊开，这时只认「第一张翻的是兜底位置」。
+if (seat2.alive !== false) assert.equal(revealedAuto, 1, "自动回合只该翻一张（第一张未揭示的）");
+assert.equal(seat2.trials.findIndex((t) => t.revealed), firstHidden2, "自动揭示应取第一张未揭示的身份卡");
 
 const after = room2.clients[0].projection;
 assert.ok(
@@ -254,10 +287,13 @@ assert.ok(
   "揭示落定后要把回合交出去，不能停在原座位",
 );
 const newEvents = after.log.slice(logBefore);
-const drewTwo = newEvents.some((e) => e.type === "cardDrawn" && e.playerId === chooserSeat && e.count === 2);
-assert.ok(!drewTwo, "挂着选择的时候抽两张：自动回合必须先揭示再继续");
+// 自动回合的次序是「先把挂起落定，再继续抽牌/结束回合」：补牌可以有，但必须排在揭示之后。
+const revealAt = newEvents.findIndex((e) => e.type === "trialRevealed" && e.playerId === target2);
+const drawAt = newEvents.findIndex((e) => e.type === "cardDrawn" && e.playerId === chooserSeat && e.count === 2);
+assert.ok(revealAt >= 0, "自动回合要先揭示，实际新事件里没有本次揭示：" + JSON.stringify(newEvents));
+if (drawAt >= 0) assert.ok(revealAt < drawAt, "抽两张必须排在揭示之后，实际揭示在 " + revealAt + "、抽牌在 " + drawAt);
 const selfAfter = waiter.projection.self;
-assert.ok(selfAfter.hand.length <= handBefore, "自动揭示不该顺手给选择者补牌（" + handBefore + " -> " + selfAfter.hand.length + "）");
+assert.ok(selfAfter.hand.length <= handBefore + 2, "自动回合最多补两张（" + handBefore + " -> " + selfAfter.hand.length + "）");
 // 超时代翻：auto 由规则层写进事件本身，客户端不用再另外数日志对位。
 const autoEvent = after.log.filter((e) => e.type === "trialRevealed").at(-1);
 assert.equal(autoEvent?.playerId, target2, "最后一条揭示事件应指向本次目标");
@@ -267,9 +303,12 @@ console.log("turn timeout ok: 自动翻第", firstHidden2, "张，回合交到",
 for (const c of room2.clients) c.close();
 
 // ── 片三：机器人当选择者时立刻翻第一张，不等回合计时 ────────────────────────────
-// 房主只抽牌/结束回合，从不打红卡，所以它永远不是选择者；出现的揭示一律来自机器人选择者。
-// 假时钟下机器人的回合上限根本不会到期，这一局能往前走本身就是「机器人不等人」的证据。
-const r3 = await (async () => {
+// 房主只抽牌/结束回合，从不打红卡，所以它永远不是选择者；机器人一旦凑够门槛就该自己翻牌，
+// 而回合计时在假时钟下根本不会到期——这一局能往前走本身就是「机器人不等人」的证据。
+// 单局可能先被传染/自首的揭示带走或先分出胜负，所以开到拿到「门槛类原因的机器人代翻」为止。
+const APPROACH_CAUSES = new Set(["accusation", "curse", "scapegoat"]);
+
+async function attemptBotChooser(deadlineMs) {
   const c = new Client("房主");
   await c.open();
   c.send({ type: "create", name: "房主" });
@@ -279,37 +318,62 @@ const r3 = await (async () => {
   c.send({ type: "ready", ready: true });
   await waitFor("startable", () => c.room?.startable, 5000);
   c.send({ type: "start" });
+  await waitFor("deal", () => c.projection?.phase === "deal", 8000);
   await passDealPhase({ seatId: c.seatId, getProjection: () => c.projection, getPrivate: () => c.private, send: (m) => c.send(m), waitFor });
   await waitFor("dawn", () => c.projection?.phase === "dawn", 8000);
-  return { clients: [c], host: c };
-})();
-const host = r3.host;
-const botIds = new Set(host.room.seats.filter((s) => s.bot).map((s) => s.id));
-assert.equal(botIds.size, 3, "应有三张机器人座位");
-
-const bots = r3.clients;
-const startC = Date.now();
-let botReveals = [];
-while (Date.now() - startC < 120000) {
-  const view = host.projection;
-  if (view?.phase === "over") break;
-  botReveals = (view?.log ?? []).filter((e) => e.type === "trialRevealed" && botIds.has(e.chooserId));
-  if (botReveals.length) break;
-  if (view?.phase === "dawn") { voteDawn(bots); await sleep(60); continue; }
-  if (view?.phase === "night") { voteNight(bots); await sleep(60); continue; }
-  if (view?.phase === "action" && view.currentPlayerId === host.seatId) {
-    host.send({ type: "action", action: view.actionTaken ? { kind: "end" } : { kind: "draw" } });
+  const botIds = new Set(c.room.seats.filter((s) => s.bot).map((s) => s.id));
+  assert.equal(botIds.size, 3, "应有三张机器人座位");
+  const startedAt = Date.now();
+  let approach = [];
+  while (Date.now() - startedAt < deadlineMs) {
+    const view = c.projection;
+    if (view?.phase === "over") break;
+    approach = (view?.log ?? []).filter(
+      (e) => e.type === "trialRevealed" && botIds.has(e.chooserId) && APPROACH_CAUSES.has(e.cause),
+    );
+    if (approach.length) break;
+    if (view?.phase === "dawn") { voteDawn([c]); await sleep(60); continue; }
+    if (view?.phase === "night") { voteNight([c]); await sleep(60); continue; }
+    if (view?.phase === "action" && view.currentPlayerId === c.seatId) {
+      c.send({ type: "action", action: view.actionTaken ? { kind: "end" } : { kind: "draw" } });
+    }
+    await sleep(70);
   }
-  await sleep(70);
+  if (approach.length) return { host: c, botIds, approach };
+  c.close();
+  return null;
 }
-assert.ok(botReveals.length > 0, "机器人当选择者时应在 " + Math.round((Date.now() - startC) / 1000) + " 秒内自己翻牌，不该等人");
-assert.ok(botReveals.every((e) => botIds.has(e.chooserId)), "揭示事件的选择者都应是机器人座位");
+
+let r3 = null;
+for (let attempt = 1; attempt <= 3 && !r3; attempt += 1) {
+  r3 = await attemptBotChooser(60000);
+  if (!r3) console.log("bot chooser attempt", attempt, "没遇到机器人门槛代翻，重开一局");
+}
+assert.ok(r3, "三局之内都该出现机器人当选选择者并自己翻牌，不该等人");
+const host = r3.host;
+const approachReveals = r3.approach;
 // 4 人局每人 5 张身份卡：翻第一张时至少还有 2 张未揭示，所以这一翻必然越过了挂起。
-const revealedSeat = host.projection.seats[botReveals[0].playerId];
+const revealedSeat = host.projection.seats[approachReveals[0].playerId];
 assert.equal(revealedSeat.trials.length, 5, "4 人局每人应有 5 张身份卡");
 assert.ok(revealedSeat.trials.some((t) => t.revealed), "机器人选择者应已翻出第一张");
-assert.ok(botReveals.every((e) => e.auto === true), "机器人托管代翻的事件也要带 auto: true");
-console.log("bot chooser ok:", botReveals.map((e) => "选" + e.chooserId + "翻" + e.playerId).join(", "));
+// 「只剩一张直接翻开」不算兜底，事件不带 auto；越过挂起的那一翻才是机器人代翻，必须带 auto。
+const revealedCount = new Map();
+const fallbackReveals = [];
+for (const e of host.projection.log) {
+  if (e.type !== "trialRevealed") continue;
+  const before = revealedCount.get(e.playerId) ?? 0;
+  revealedCount.set(e.playerId, before + 1);
+  const total = host.projection.seats[e.playerId]?.trials.length ?? 0;
+  // 传染与自首是已知偏差：它们总是直接翻第一张，不经过挂起，也就没有 auto 可标。
+  const direct = e.cause === "conspiracy" || e.cause === "confession";
+  if (!direct && before + 1 < total) fallbackReveals.push(e);
+}
+assert.ok(fallbackReveals.length > 0, "机器人当选择者时应有至少一次越过挂起的代翻");
+assert.ok(
+  fallbackReveals.every((e) => e.auto === true),
+  "机器人越过挂起代翻的事件要带 auto: true，实际 " + JSON.stringify(fallbackReveals.filter((e) => e.auto !== true)),
+);
+console.log("bot chooser ok:", approachReveals.map((e) => "选" + e.chooserId + "翻" + e.playerId + "(" + e.cause + ")").join(", "));
 
 host.close();
 console.log("\nreveal.mjs ok");

@@ -124,6 +124,11 @@ const closeAll = (clients) => { for (const c of clients) c.close(); };
   assert.equal(seatA.roleOptions.length, 2, "4 人局每人两张候选");
   assert.deepEqual(a.deal?.acked, [], "刚进发牌相位时没人确认");
   assert.equal(typeof a.deal?.deadline, "number", "发牌相位要有截止时间");
+assert.deepEqual(
+  Object.keys(a.deal ?? {}).sort(),
+  ["acked", "deadline"],
+  "发牌视图只该带 acked 与 deadline，实际 " + Object.keys(a.deal ?? {}).join(","),
+);
   assert.equal(a.private?.acknowledged, false, "自己还没确认");
 
   for (const action of [

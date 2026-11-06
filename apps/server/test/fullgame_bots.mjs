@@ -38,7 +38,7 @@ const EXPECTED_ERRORS = new Set([
   "cannot-target-self",
   "invalid-target",
   "bad-target",
-  "pending-reveal",
+  "reveal-pending",
 ]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

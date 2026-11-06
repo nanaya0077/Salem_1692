@@ -12,6 +12,7 @@ import {
   createGame,
   defaultConfigFor,
   defaultNightChoice,
+  defaultRevealIndex,
   drawTwo,
   effectiveRole,
   endTurn,
@@ -388,13 +389,24 @@ function clearTurnTimer(room) {
   clock.cancel(room.turnTimer);
   room.turnTimer = null;
   room.turnDeadline = null;
+  room.turnActorId = null;
 }
 
 function armTurnTimer(room) {
-  clearTurnTimer(room);
-  if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.winner) return;
+  if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.winner) {
+    clearTurnTimer(room);
+    return;
+  }
   const actorId = room.game.currentPlayerId;
-  if (!seatOf(room, actorId)) return;
+  if (!seatOf(room, actorId)) {
+    clearTurnTimer(room);
+    return;
+  }
+  // 挂起揭示期回合计时继续跑：同一回合同一座位不重设倒计时，
+  // 否则选择者每收一条消息就把 90 秒补满，等于白拿一轮时间。
+  if (room.game.pendingReveal && room.turnTimer && room.turnActorId === actorId) return;
+  clearTurnTimer(room);
+  room.turnActorId = actorId;
   room.turnDeadline = clock.now() + TURN_MS;
   room.turnTimer = clock.after(() => {
     if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.currentPlayerId !== actorId) return;
@@ -409,7 +421,7 @@ function armTurnTimer(room) {
  */
 function autoTurn(room, reason) {
   if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.winner) return;
-  // 挂起期抽牌/出牌/结束回合都会被规则层拒掉（reason: pending-reveal），不先揭示就整局卡死。
+  // 挂起期抽牌/出牌/结束回合都会被规则层拒掉（reason: reveal-pending），不先揭示就整局卡死。
   if (room.game.pendingReveal && !resolveAutoReveal(room, reason)) return;
   if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.winner) return;
   const actorId = room.game.currentPlayerId;
@@ -429,8 +441,7 @@ function autoTurn(room, reason) {
 function resolveAutoReveal(room, reason) {
   const pending = room.game?.pendingReveal;
   if (!pending) return true;
-  const target = room.game.players[pending.targetId];
-  const trialIndex = target ? target.trials.findIndex((t) => !t.revealed) : -1;
+  const trialIndex = defaultRevealIndex(room.game);
   if (trialIndex < 0) return false;
   // auto: true 直接写进规则层的 trialRevealed 事件，日志句自己就能说明是自动取的第一个位置。
   const result = resolvePendingReveal(room.game, pending.chooserId, { kind: "reveal", trialIndex }, { auto: true });

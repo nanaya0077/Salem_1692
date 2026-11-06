@@ -142,7 +142,7 @@ test("重复的揭示命令被拒，且不产生第二次揭示", () => {
   assert.equal(first.state.players[1].trials.filter((t) => t.revealed).length, 1, "只翻开一张");
 });
 
-test("目标只剩一张未揭示时不进挂起，直接揭示", () => {
+test("普通门槛下目标只剩一张未揭示时不进挂起，直接揭示", () => {
   const game = baseGame();
   setTrials(game, 1, ["townspeople"]);
   setHands(game, [["witness"], [], [], []]);
@@ -152,6 +152,32 @@ test("目标只剩一张未揭示时不进挂起，直接揭示", () => {
   assert.equal(result.state.pendingReveal, null, "不进挂起");
   assert.equal(result.state.players[1].trials.filter((t) => t.revealed).length, 1);
   assert.equal(result.state.players[1].accusations.length, 0, "直接揭示时红卡照常清空");
+});
+
+test("丹福斯 6 点遇到只剩一张仍未揭示的目标时先进挂起，可放弃优先于省掉选位置", () => {
+  const game = baseGame(["thomas-danforth", "none", "none", "none"]);
+  setTrials(game, 1, ["townspeople"]);
+  setHands(game, [["evidence", "evidence", "accusation"], [], [], []]);
+  const first = playCard(game, { actorId: 0, cardId: "evidence", targetId: 1 });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  const second = playCard(first.state, { actorId: 0, cardId: "evidence", targetId: 1 });
+  assert.equal(second.ok, true);
+  if (!second.ok) return;
+  assert.equal(second.state.pendingReveal?.targetId, 1, "只剩一张也要挂起");
+  assert.equal(second.state.pendingReveal?.canDecline, true, "6 点可放弃");
+  assert.equal(second.state.players[1].trials.filter((t) => t.revealed).length, 0, "挂起期不揭示");
+
+  const declined = resolvePendingReveal(second.state, 0, { kind: "decline" });
+  assert.equal(declined.ok, true);
+  if (!declined.ok) return;
+  assert.equal(declined.state.players[1].trials.filter((t) => t.revealed).length, 0, "放弃后仍不揭示");
+
+  const third = playCard(declined.state, { actorId: 0, cardId: "accusation", targetId: 1 });
+  assert.equal(third.ok, true);
+  if (!third.ok) return;
+  assert.equal(third.state.pendingReveal, null, "第 7 点不再给放弃机会");
+  assert.equal(third.state.players[1].trials.filter((t) => t.revealed).length, 1, "单张直接翻开");
 });
 
 test("丹福斯对普通玩家 6 点可放弃：红卡保留，第 7 点再次触发", () => {
@@ -214,10 +240,10 @@ test("挂起期间抽牌、出牌、结束回合一律被拒", () => {
   const state = played.state;
   assert.ok(state.pendingReveal);
   const snapshot = JSON.stringify(state);
-  assert.deepEqual(drawTwo(state), { ok: false, reason: "pending-reveal" });
-  assert.deepEqual(endTurn(state), { ok: false, reason: "pending-reveal" });
-  assert.deepEqual(canPlayCard(state, 0, "accusation", 2), { ok: false, reason: "pending-reveal" });
-  assert.deepEqual(playCard(state, { actorId: 0, cardId: "accusation", targetId: 2 }), { ok: false, reason: "pending-reveal" });
+  assert.deepEqual(drawTwo(state), { ok: false, reason: "reveal-pending" });
+  assert.deepEqual(endTurn(state), { ok: false, reason: "reveal-pending" });
+  assert.deepEqual(canPlayCard(state, 0, "accusation", 2), { ok: false, reason: "reveal-pending" });
+  assert.deepEqual(playCard(state, { actorId: 0, cardId: "accusation", targetId: 2 }), { ok: false, reason: "reveal-pending" });
   assert.equal(JSON.stringify(state), snapshot, "被拒时状态不变");
 });
 

@@ -144,7 +144,7 @@ export function canPlayCard(
   const actor = state.players[actorId];
   if (!actor || !actor.alive) return { ok: false, reason: "actor-not-alive" };
   if (state.phase !== "action") return { ok: false, reason: "not-action-phase" };
-  if (state.pendingReveal) return { ok: false, reason: "pending-reveal" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   if (state.currentPlayerId !== actorId) return { ok: false, reason: "not-your-turn" };
   if (!actor.hand.includes(cardId)) return { ok: false, reason: "card-not-in-hand" };
   if (card.color === "black") return { ok: false, reason: "black-card-resolves-on-draw" };
@@ -393,7 +393,9 @@ function settleAfterReveal(
 }
 
 /**
- * 达到门槛后的揭示入口：只剩一张未揭示时直接翻开，否则挂起等选择者指定位置。
+ * 达到门槛后的揭示入口：只剩一张未揭示且不可放弃时直接翻开，否则挂起等选择者指定位置。
+ * 可放弃优先于省掉选位置（ADR 0002）：丹福斯把目标压到正好 6 点、目标只剩一张，
+ * 仍要进挂起，否则玩家会失去放弃权。
  * 卡 id 在挂起期间不离开规则层，对外只发位置号。
  */
 function triggerReveal(
@@ -413,18 +415,13 @@ function triggerReveal(
     settleAfterReveal(state, targetId, chooserId, cause, useAbigail, events);
     return;
   }
-  if (hidden.length === 1) {
+  const canDecline = canDeclineReveal(state, targetId, chooserId, cause);
+  if (hidden.length === 1 && !canDecline) {
     revealTrial(state, targetId, chooserId, cause, events, hidden[0].id);
     settleAfterReveal(state, targetId, chooserId, cause, useAbigail, events);
     return;
   }
-  state.pendingReveal = {
-    targetId,
-    chooserId,
-    cause,
-    canDecline: canDeclineReveal(state, targetId, chooserId, cause),
-    useAbigail,
-  };
+  state.pendingReveal = { targetId, chooserId, cause, canDecline, useAbigail };
 }
 
 function addAccusation(
@@ -578,6 +575,19 @@ export function playCard(state: GameState, action: PlayAction): ActionResult {
 }
 
 /**
+ * 兜底位置号：挂起态下目标第一张未揭示的身份卡。
+ * 超时、托管、机器人代翻都取这个位置；没有挂起或已全部揭示时返回 -1。
+ * 规则语义归规则包，服务端与界面只消费这个结果。
+ */
+export function defaultRevealIndex(state: GameState): number {
+  const pending = state.pendingReveal;
+  if (!pending) return -1;
+  const target = state.players[pending.targetId];
+  if (!target) return -1;
+  return target.trials.findIndex((t) => !t.revealed);
+}
+
+/**
  * 结算挂起式揭示：按位置号翻开目标那一张身份卡，或（仅丹福斯对普通玩家第 6 点）放弃。
  * 位置号在规则层映射回身份卡 id，卡 id 不出规则包。
  */
@@ -669,7 +679,7 @@ function continueDraws(state: GameState, events: GameEvent[], options: DrawOptio
 
 export function drawTwo(state: GameState, options: DrawOptions = {}): ActionResult {
   if (state.phase !== "action") return { ok: false, reason: "not-action-phase" };
-  if (state.pendingReveal) return { ok: false, reason: "pending-reveal" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   if (state.turn.actionTaken) return { ok: false, reason: "action-already-taken" };
   const next = cloneState(state);
   const events: GameEvent[] = [];
@@ -684,7 +694,7 @@ export function drawTwo(state: GameState, options: DrawOptions = {}): ActionResu
 
 export function endTurn(state: GameState): ActionResult {
   if (state.phase !== "action") return { ok: false, reason: "not-action-phase" };
-  if (state.pendingReveal) return { ok: false, reason: "pending-reveal" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   if (!state.turn.actionTaken) return { ok: false, reason: "must-draw-or-play" };
   const next = cloneState(state);
   const events: GameEvent[] = [];
@@ -892,7 +902,7 @@ function finishNight(state: GameState, events: GameEvent[]): void {
 
 export function samuelTake(state: GameState, actorId: number, cardIds: CardId[]): ActionResult {
   if (state.phase !== "action" || state.currentPlayerId !== actorId) return { ok: false, reason: "not-your-turn" };
-  if (state.pendingReveal) return { ok: false, reason: "pending-reveal" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   const actor = state.players[actorId];
   if (!actor || !actor.alive) return { ok: false, reason: "actor-not-alive" };
   if (effectiveRole(state, actorId) !== "samuel-parris") return { ok: false, reason: "not-samuel" };
@@ -919,7 +929,7 @@ export function samuelTake(state: GameState, actorId: number, cardIds: CardId[])
 
 export function titubaReorder(state: GameState, actorId: number, order: CardId[]): ActionResult {
   if (state.phase !== "action" || state.currentPlayerId !== actorId) return { ok: false, reason: "not-your-turn" };
-  if (state.pendingReveal) return { ok: false, reason: "pending-reveal" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   const actor = state.players[actorId];
   if (!actor || !actor.alive) return { ok: false, reason: "actor-not-alive" };
   if (effectiveRole(state, actorId) !== "tituba") return { ok: false, reason: "not-tituba" };
