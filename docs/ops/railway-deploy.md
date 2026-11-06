@@ -98,7 +98,7 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 旧房码 join -> {"type":"error","message":"房间不存在或已结束","reason":"room-not-found"}
 ```
 
-`room-not-found` 在客户端就是终态：`apps/web/reconnect.js:38-55` 判 `room-gone`，`apps/web/app.js:785-808` 停止重连、清存档、回落地页并显示提示文案（文案常量 `apps/web/reconnect.js:20`）。`apps/web/test/reconnect.test.js` 覆盖这一条：`cd apps/web && node --test test/reconnect.test.js`，10 条全过。
+`room-not-found` 在客户端就是终态：`errorOutcome()` 把 `room-not-found` 判成 `room-gone`，落点 `enterRoomGone()` 停止重连、清存档、回落地页并显示提示文案（文案常量 `ROOM_GONE_MESSAGE`；判定与落点分别在 `apps/web/reconnect.js` 与 `apps/web/app.js`）。`apps/web/test/reconnect.test.js` 覆盖这一条：`cd apps/web && node --test test/reconnect.test.js`，14 条全过。
 
 **证据位 E3（线上重启）**：待用户执行 · 由 Lead 回填。回填内容 = 重启前后 `/health` 的 `uptime`、旧房码 404 的响应、页面截图或文案。
 
@@ -107,7 +107,7 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 - 运行日志在服务 → Logs；客户端连不上的第一件事是看有没有 `salem server listening` 行、有没有进程崩溃栈。
 - `GET /health` 只回答"进程活着"：它带 `rooms` 计数（`apps/server/src/server.mjs:932-935`），但房间为 0 也一样返回 200。
 - `GET /api/rooms` 与 `GET /api/rooms/{code}`（`apps/server/src/server.mjs:937`、`:942`）可以确认房间表当前有几个房；房码不存在返回 404。
-- WS 连不上先在浏览器控制台看握手 URL 用的是 `ws://` 还是 `wss://`；协议由 `location.protocol` 推导（`apps/web/app.js:114-115`），页面走 https 就必须是 `wss://`。
+- WS 连不上先在浏览器控制台看握手 URL 用的是 `ws://` 还是 `wss://`；协议由 `connect()` 里的 `location.protocol` 推导（`apps/web/app.js:121`），页面走 https 就必须是 `wss://`。
 
 ## 变量
 

@@ -43,7 +43,7 @@ Multi-context repo (presence of `GLOSSARY-MAP.md` at the root):
 **Layout: single-context.**
 
 - `GLOSSARY.md` exists at the root and holds the game's domain terms (身份卡 / 角色卡 / 女巫 / 夜晚 / 黎明 / 指控 / 自首 / 遗言 / 托管 / 投影 …). Read it before naming anything.
-- `docs/adr/` does not exist yet. Create it only when the first real architectural decision gets recorded via `/domain-modeling`.
+- `docs/adr/` exists and holds `0003-single-replica-ephemeral-rooms.md` and `0004-dockerfile-manual-deploy.md`. Numbering starts at 0003; 0001/0002 belong to another spec that hasn't landed yet. Record new decisions with the next free number.
 - `docs/rules/` is source material (the published rulebook and its extracted text), not domain documentation. Don't treat it as an ADR or glossary source of truth — the glossary is.
 - `docs/wayfinder/salem-online/` is a pre-init exploration map, not domain documentation.
 

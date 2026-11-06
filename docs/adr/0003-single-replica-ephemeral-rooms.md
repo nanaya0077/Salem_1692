@@ -4,7 +4,7 @@
 
 因此托管形态定死：**永久单副本**，不做横向扩容；**进程重启 = 该进程上所有对局作废**，这是明示的产品行为而不是事故——试玩版不为未验证的玩法预付持久化成本。
 
-这条因果链的末端是「房间已失效」：进程重启后旧房码在服务端已经查不到，客户端补发 join 拿到 `{ reason: "room-not-found" }`（`apps/server/src/server.mjs:559`），前端据此进终态——停止重连、清存档、回落地页，并显示「房间已失效，请重新开房。」（文案 `apps/web/reconnect.js:20`，判定 `apps/web/reconnect.js:38-55`，落点 `apps/web/app.js:785-808`）。没有「单副本 + 内存态」就没有这个终态；反过来，有了这个终态，重启才是可接受的产品行为而不是故障。两者的验收要一起看。
+这条因果链的末端是「房间已失效」：进程重启后旧房码在服务端已经查不到，客户端补发 join 拿到 `{ reason: "room-not-found" }`（`apps/server/src/server.mjs:559`），前端据此进终态——停止重连、清存档、回落地页，并显示「房间已失效，请重新开房。」（文案常量 `ROOM_GONE_MESSAGE`，判定 `errorOutcome()`，落点 `enterRoomGone()`；分别在 `apps/web/reconnect.js` 与 `apps/web/app.js`）。没有「单副本 + 内存态」就没有这个终态；反过来，有了这个终态，重启才是可接受的产品行为而不是故障。两者的验收要一起看。
 
 **Considered Options**
 
