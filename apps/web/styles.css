@@ -86,6 +86,8 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .join-row { display: flex; gap: 8px; }
 .join-row input { flex: 1; text-transform: uppercase; letter-spacing: .18em; font-weight: 700; }
 .error { color: #ff9a8c; font-size: 13px; min-height: 18px; margin: 10px 0 0; }
+/* 房间失效后出现的「重新开房」入口，接在房码错误提示下面。 */
+#reopenBtn { margin-top: 6px; }
 .fineprint { color: rgba(183,164,136,.7); font-size: 11px; text-align: center; line-height: 1.7; margin-top: 22px; }
 
 /* lobby */

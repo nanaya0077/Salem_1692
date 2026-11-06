@@ -1,3 +1,5 @@
+import { ROOM_GONE_MESSAGE, errorOutcome, reconnectPlan, rejoinPlan } from "./reconnect.js";
+
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -29,6 +31,9 @@ const S = {
   reconnectTimer: null,
   leaving: false,
   autoJoined: false,
+  rejoining: false,
+  roomGone: false,
+  queued: null,
   sent: [],
 };
 // 调试入口：浏览器控制台与联调脚本可直接读当前状态。
@@ -112,11 +117,21 @@ function connect() {
   ws.addEventListener("open", () => {
     S.open = true;
     S.autoJoined = false;
-    const saved = loadSession();
-    if (saved?.code && saved?.token && !S.room) {
-      send({ type: "join", code: saved.code, token: saved.token });
-      S.autoJoined = true;
+    // 连上之后先把玩家刚点的动作发出去（房间失效后点「重新开房」时 socket 可能还断着）。
+    if (S.queued) {
+      const queued = S.queued;
+      S.queued = null;
+      S.rejoining = false;
+      send(queued);
+      return;
     }
+    // 断线重连也要补发 join：S.room 里留着的是旧房间，不能拿它当守卫，
+    // 否则新 socket 连上了却没有房间，页面就一直停在旧房间里空转。
+    const plan = rejoinPlan({ session: loadSession(), leaving: S.leaving, roomGone: S.roomGone });
+    if (!plan) return;
+    S.rejoining = true;
+    S.autoJoined = true;
+    send({ type: "join", code: plan.code, token: plan.token });
   });
   ws.addEventListener("message", (event) => {
     let msg;
@@ -126,14 +141,15 @@ function connect() {
   ws.addEventListener("close", () => {
     S.open = false;
     S.ws = null;
-    if (S.room && !S.leaving) {
-      toast("连接断开，正在重连…");
-      clearTimeout(S.reconnectTimer);
-      S.reconnectTimer = setTimeout(connect, 1500);
-    }
+    const plan = reconnectPlan({ inRoom: Boolean(S.room), leaving: S.leaving, roomGone: S.roomGone });
+    if (!plan) return;
+    toast("连接断开，正在重连…");
+    clearTimeout(S.reconnectTimer);
+    S.reconnectTimer = setTimeout(connect, plan.delayMs);
   });
   ws.addEventListener("error", () => {
-    if (!S.room) $("landingError").textContent = "无法连接服务器，请确认服务已启动。";
+    // 终态文案优先：房间已失效的提示不能被后续连不上的兜底文案盖掉。
+    if (!S.room && !S.roomGone) $("landingError").textContent = "无法连接服务器，请确认服务已启动。";
   });
 }
 
@@ -161,6 +177,7 @@ function handle(msg) {
   switch (msg.type) {
     case "welcome":
       S.seatId = msg.seatId;
+      S.rejoining = false;
       saveSession({ code: msg.code, token: msg.token, seatId: msg.seatId });
       break;
     case "room":
@@ -185,8 +202,15 @@ function handle(msg) {
       renderLog();
       if ($("logDrawer").hidden) toast(msg.name + "：" + msg.text);
       break;
-    case "error":
-      if (msg.reason === "room-not-found" || msg.reason === "no-seat") {
+    case "error": {
+      const outcome = errorOutcome({ reason: msg.reason, rejoining: S.rejoining });
+      // 补发 join 撞上房间不存在：服务端重启把房间清掉了，进终态，不再重连。
+      if (outcome === "room-gone") {
+        enterRoomGone();
+        break;
+      }
+      // 玩家手输房码撞上房间不存在：保持落地页原有提示，不进终态。
+      if (outcome === "join-failed") {
         clearSession();
         S.room = null;
         S.projection = null;
@@ -196,6 +220,7 @@ function handle(msg) {
       }
       toast(msg.message || "操作失败");
       break;
+    }
     case "pong":
       break;
     default:
@@ -755,6 +780,54 @@ function submitDawn() {
   act({ kind: "dawn", targetId: S.dawnTarget });
 }
 
+// 房间级终态：房间已经不存在（服务端重启、房间过期），重连也回不去这个房间。
+// 停止重连、清掉存档、回落地页，并在房码错误提示的位置给出提示与重新开房入口。
+function enterRoomGone() {
+  S.roomGone = true;
+  S.rejoining = false;
+  S.queued = null;
+  clearTimeout(S.reconnectTimer);
+  clearSession();
+  S.room = null;
+  S.projection = null;
+  S.private = null;
+  S.seatId = null;
+  S.pending = null;
+  S.nightKey = null;
+  S.dawnKey = null;
+  closeModal();
+  render();
+  showRoomGonePrompt();
+}
+
+function showRoomGonePrompt() {
+  const input = $("nameInput");
+  if (!input.value) input.value = localStorage.getItem("salem.name") || "";
+  $("landingError").textContent = ROOM_GONE_MESSAGE;
+  $("reopenBtn").hidden = false;
+}
+
+function hideRoomGonePrompt() {
+  $("landingError").textContent = "";
+  $("reopenBtn").hidden = true;
+}
+
+// 开新房：落地页的「创建房间」与终态提示下的「重新开房」共用这一条路径。
+function createRoom(name) {
+  hideRoomGonePrompt();
+  localStorage.setItem("salem.name", name);
+  S.leaving = false;
+  S.rejoining = false;
+  S.roomGone = false;
+  if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+    send({ type: "create", name });
+    return;
+  }
+  // socket 还断着：连上之后立刻把这句发出去，别让入口点了没反应。
+  S.queued = { type: "create", name };
+  connect();
+}
+
 function leaveToLanding() {
   S.leaving = true;
   if (S.ws && S.ws.readyState === WebSocket.OPEN && S.room) send({ type: "leave" });
@@ -783,20 +856,31 @@ function bind() {
   $("createBtn").addEventListener("click", () => {
     const name = $("nameInput").value.trim();
     if (!name) { $("landingError").textContent = "请先填一个昵称。"; return; }
-    $("landingError").textContent = "";
-    localStorage.setItem("salem.name", name);
-    S.leaving = false;
-    send({ type: "create", name });
+    createRoom(name);
+  });
+  $("reopenBtn").addEventListener("click", () => {
+    hideRoomGonePrompt();
+    const name = $("nameInput").value.trim() || localStorage.getItem("salem.name") || "";
+    $("nameInput").value = name;
+    if (!name) { $("landingError").textContent = "请先填一个昵称。"; $("nameInput").focus(); return; }
+    createRoom(name);
   });
   $("joinBtn").addEventListener("click", () => {
     const name = $("nameInput").value.trim();
     const code = $("codeInput").value.trim().toUpperCase();
     if (!name) { $("landingError").textContent = "请先填一个昵称。"; return; }
     if (code.length !== 6) { $("landingError").textContent = "房码是 6 位。"; return; }
-    $("landingError").textContent = "";
+    hideRoomGonePrompt();
     localStorage.setItem("salem.name", name);
     S.leaving = false;
-    send({ type: "join", code, name });
+    S.rejoining = false;
+    S.roomGone = false;
+    if (S.ws && S.ws.readyState === WebSocket.OPEN) {
+      send({ type: "join", code, name });
+      return;
+    }
+    S.queued = { type: "join", code, name };
+    connect();
   });
   $("codeInput").addEventListener("input", (e) => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
