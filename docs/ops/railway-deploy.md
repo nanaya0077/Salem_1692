@@ -16,7 +16,7 @@
 | 服务 | `salem-online` / `bb45b318-2ee6-4448-9063-fd6f36e8d47c` |
 | 环境 | `production` / `2dcec8b2-89bb-4258-a198-46f12a54f21a` |
 | 构建 | `builder: DOCKERFILE`、`dockerfilePath: /Dockerfile` |
-| 构建 commit | 线上现役 `33b9e5e`（线下模式，部署 `4e2cfb93-…`）；同一环境里还留着 `49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）四份可回滚部署 |
+| 构建 commit | 线上现役 `644d661`（翻牌 3D 与全桌横幅，部署 `2540b2aa-…`）；同一环境里还留着 `7f24a3e`（`f2f9eef0-…`）、`33b9e5e`（`4e2cfb93-…`）、`49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）六份可回滚部署 |
 | 副本 | `numReplicas: 1` |
 | 区域 | `multiRegionConfig: { asia-southeast1-eqsg3a: { numReplicas: 1 } }`（Singapore 单区） |
 | 健康检查 | `healthcheckPath: /health`，`healthcheckTimeout: 300` 秒 |
@@ -139,6 +139,15 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 - 线上真浏览器实拍（390×844，`docs/acceptance/shots/live-offline-landing.png`、`live-offline-lobby.png`、`live-offline-turn.png`）：落地页勾上「线下模式」→ 建房 `9X64RB`（`room.offline === true`）→ 大厅出现「线下模式 · 全程不限时」→ 加 3 个机器人开局 → 发牌屏「发牌 · 不限时」、`#dealTimer` 写「不限时」→ 选角色并确认后进白天，回合徽标「轮到 你 · 不限时」，`#dawnTimer` 与 `#nightTimer` 同为「不限时」。
 - 本地补充证据（`PORT=8087`，房间 `W2TKSL`）：黎明相位停留 20 秒以上原地不动、`private.dawn.deadline` 缺失；对照的普通房 45 秒兜底照旧；服务端 `offline.mjs` 四段推时钟同样证明线下房不会自己往下走。
 
+**证据位 E7（发布 `644d661`：身份卡双面翻牌 + 翻牌全桌横幅）· 已回填 2026-11-06**：
+- 发布对象 `main` @ `644d661`（`fix(web): 翻牌横幅挪到桌面正中空白区，不再压轮次条与座位`）；上一提交 `7f24a3e`（`feat(web): 翻身份卡时全桌弹结果横幅，身份卡改双面 3D 翻牌`）已先发过一次。
+- 两次部署：`7f24a3e` → `f2f9eef0-f832-4018-8095-741db227a14a`（`/sw.js` 变 `salem-v9`）；`644d661` → `2540b2aa-5e4d-4bf2-94f1-a99ec3c9e0f1`（`/sw.js` 变 `salem-v10`）。两次都是轮询第 4 次、约 24–32 秒转成功。
+- 版本探针：`/sw.js` `salem-v8` → `salem-v9` → **`salem-v10`**；首页 12268 → **13008 bytes**，含 `id="revealBanner"` 与 `id="offlineMode"`；`/app.js` 含 `function announceReveals` 与 `flip-in`；`/styles.css` 含 `preserve-3d` 与 `@keyframes trial-flip`。
+- 验证：`/health` 返回 ok；`deploy-smoke.mjs` **9/9 通过**（建房 `5KWGJD`）。
+- 线上真浏览器实拍：`docs/acceptance/shots/live-v9-trial-flip.png` 用临时 demo 条证明 3D 生效（`rotateY(0deg)` 显示牌背 / `90deg` 收成一条线 / `180deg` 显示女巫牌面）；`docs/acceptance/shots/live-v10-reveal-banner.png` 是 390×844 上的最终落位——横幅 236×69、`top` 303、`bottom` 372，落在桌面正中 1692 装饰区，与顶栏 `#turnBadge`（16–47）无重叠（脚本判定 `overlap: false`），内容为小牌面 + 「机器人2 翻开了 机器人1 的身份卡」+ 金色「女巫」。
+- 这一版之前横幅曾贴 `top: 14px`（`salem-v9`），在 390 宽下会盖住「轮到谁 · 剩余秒数」，因此有了 `644d661` 这次纯样式修正；代价是 sw 壳必须再升一版，否则离线壳仍发旧 `styles.css`。
+- 验证时踩到的坑：`getComputedStyle` 在刚加 class 的同一帧读到的是 transition 起点（identity matrix），要验终态得用静止带 class 的元素或 `transition: none`；ego 浏览器进程长时间运行后会僵死（`PageNavigationTimeoutError` / `PageEvaluationTimeoutError`），要 `Get-Process -Name ego | Stop-Process -Force` 杀光全部 ego 进程让它自动重启。
+
 ## 看日志与排障
 
 - 运行日志在服务 → Logs；客户端连不上的第一件事是看有没有 `salem server listening` 行、有没有进程崩溃栈。
@@ -178,6 +187,7 @@ $env:BASE="http://127.0.0.1:8137"; node apps/server/test/deploy-smoke.mjs
 | 发牌确认线与座位资料线已上线 | 已通过 2026-11-06 | 证据位 E4：部署 `e68d9de2-…` / commit `e720751` / 五个前端模块从 404 变 200、`/sw.js` 变 `salem-v6`、冒烟 9/9、真浏览器发牌屏出角色候选 |
 | 角色卡浮层与开局锁资料已上线 | 已通过 2026-11-06 | 证据位 E5：部署 `97f2772a-…` / commit `49057d3` / `/sw.js` 变 `salem-v7`、首页含 `id="roleModal"`、五个角色牌面 200、冒烟 9/9、真浏览器技能行与三种点击实测 |
 | 线下模式已上线（建房勾选后全程无倒计时） | 已通过 2026-11-06 | 证据位 E6：部署 `4e2cfb93-…` / commit `33b9e5e` / `/sw.js` 变 `salem-v8`、首页含 `id="offlineMode"`、冒烟 9/9、真浏览器从建房到白天全程「不限时」 |
+| 身份卡双面翻牌与翻牌全桌横幅已上线 | 已通过 2026-11-06 | 证据位 E7：部署 `2540b2aa-…` / commit `644d661` / `/sw.js` 变 `salem-v10`、首页含 `id="revealBanner"`、冒烟 9/9、真浏览器验证 3D 三态与横幅落在桌面正中且不压顶栏 |
 
 公网冒烟实测输出（2026-11-06，发布 `3c751ae` 之后立刻跑，`/health` 报 `uptime` 约 19 秒，与发布时刻对齐）：
 
