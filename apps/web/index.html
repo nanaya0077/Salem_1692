@@ -23,6 +23,10 @@
             <button id="openProfileLanding" class="btn ghost" type="button" aria-haspopup="dialog" aria-controls="profileModal">头像</button>
           </div>
         </div>
+        <label class="field offline-row" for="offlineMode">
+          <span class="offline-label">线下模式<em>面对面打牌，不设任何倒计时</em></span>
+          <input id="offlineMode" type="checkbox" />
+        </label>
         <button id="createBtn" class="btn primary big">创建房间</button>
         <div class="or"><span>或加入朋友的房间</span></div>
         <div class="join-row">
@@ -67,6 +71,7 @@
               <input id="cardsPerPlayer" type="number" min="2" max="8" inputmode="numeric" />
             </label>
           </div>
+          <p id="offlineBadge" class="offline-badge" hidden>线下模式 · 全程不限时</p>
           <p id="configHint" class="hint"></p>
           <button id="applyConfig" class="btn small">应用配置</button>
         </div>

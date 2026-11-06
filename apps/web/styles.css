@@ -433,3 +433,46 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
   .seat-card { width: calc(20% - 7px); }
   .table-wrap { padding-left: 18px; padding-right: 18px; }
 }
+
+/* 线下模式：建房时的勾选项，以及大厅里的状态提示。 */
+.offline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .18);
+  cursor: pointer;
+}
+.offline-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--gold);
+}
+.offline-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.offline-label em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.offline-badge {
+  margin: 0 0 8px;
+  padding: 5px 9px;
+  border: 1px solid rgba(216, 169, 76, .55);
+  border-radius: 8px;
+  color: var(--gold2);
+  background: rgba(216, 169, 76, .1);
+  font-size: 11px;
+  letter-spacing: .4px;
+}

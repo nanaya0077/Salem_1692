@@ -488,6 +488,7 @@ function renderLobby() {
   w.disabled = !isHost();
   c.disabled = !isHost();
   $("applyConfig").disabled = !isHost();
+  $("offlineBadge").hidden = room.offline !== true;
   const uneven = defaults && defaults.identityCardTotal && defaults.identityCardTotal % room.seats.length !== 0;
   $("configHint").textContent = defaults
     ? "当前 " + room.seats.length + " 人默认：女巫 " + defaults.witchCount +
@@ -1068,6 +1069,14 @@ function updateTimers() {
   const p = S.private;
   const now = Date.now();
   const seconds = (deadline) => Math.max(0, Math.ceil((Number(deadline) - now) / 1000));
+  // 线下模式没有截止时间：deadline 一律为 null，所有计时位改成「不限时」，不留上一局的残值。
+  // 房间元信息在 S.room 上（projection 消息只带 projection 本体，room 另存一份）。
+  const offline = (S.projection?.room ?? S.room)?.offline === true;
+  if (offline) {
+    $("turnBadge").textContent = S.turnLabel + " · 不限时";
+    for (const id of ["dealTimer", "dawnTimer", "nightTimer"]) $(id).textContent = "不限时";
+    return;
+  }
   const myTurnNow = S.projection?.phase === "action" && S.projection.currentPlayerId === S.seatId;
   const actionLeft = myTurnNow && p?.turnDeadline ? seconds(p.turnDeadline) : null;
   $("turnBadge").textContent = S.turnLabel + (actionLeft !== null ? " · " + actionLeft + "s" : "");
@@ -1499,8 +1508,10 @@ function landingSubmit(message) {
 }
 
 // 开新房：落地页的「创建房间」与终态提示下的「重新开房」共用这一条路径。
+// 线下模式（面对面打牌）在建房时勾选，勾了就整套流程都不设倒计时。
 function createRoom(name) {
-  landingSubmit({ type: "create", name });
+  const offline = $("offlineMode")?.checked === true;
+  landingSubmit({ type: "create", name, config: { offline } });
 }
 
 function leaveToLanding() {

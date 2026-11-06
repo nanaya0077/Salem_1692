@@ -157,6 +157,7 @@ function publicRoom(room) {
       isHost: s.id === room.hostSeat,
     })),
     config: room.config,
+    offline: Boolean(room.offline),
     defaults: room.seats.length >= 4 ? defaultConfigFor(room.seats.length) : defaultConfigFor(4),
     minPlayers: 4,
     maxPlayers: 12,
@@ -393,6 +394,11 @@ function clearTurnTimer(room) {
 }
 
 function armTurnTimer(room) {
+  // 线下模式：面对面打牌，回合不设上限，deadline 一律留空，客户端也就不显示倒计时。
+  if (room.offline) {
+    clearTurnTimer(room);
+    return;
+  }
   if (room.phase !== "playing" || !room.game || room.game.phase !== "action" || room.game.winner) {
     clearTurnTimer(room);
     return;
@@ -621,11 +627,16 @@ function applyResult(room, result, actorSeat = null) {
   if (room.game.phase === "night") {
     setPhase(room, "night");
     room.nightVotes = new Map();
-    room.nightDeadline = Date.now() + NIGHT_MS;
-    room.nightTimer = setTimeout(() => {
-      if (room.phase === "night") finalizeNight(room, true);
-    }, NIGHT_MS + 750);
-    log("night started", room.code);
+    if (room.offline) {
+      room.nightDeadline = null;
+      room.nightTimer = null;
+    } else {
+      room.nightDeadline = Date.now() + NIGHT_MS;
+      room.nightTimer = setTimeout(() => {
+        if (room.phase === "night") finalizeNight(room, true);
+      }, NIGHT_MS + 750);
+    }
+    log("night started", room.code, room.offline ? "offline" : "");
   } else if (!finishIfOver(room)) {
     setPhase(room, "playing");
   }
@@ -672,6 +683,8 @@ function createRoom(ws, name, configInput) {
     dealAcks: new Set(),
     dealDeadline: null,
     dealTimer: null,
+    /** 线下模式（建房时勾选）：所有环节都不设倒计时与兜底，全靠桌上的人自己掌握节奏。 */
+    offline: false,
     dawnVotes: new Map(),
     nightVotes: new Map(),
     turnTimer: null,
@@ -683,13 +696,14 @@ function createRoom(ws, name, configInput) {
   };
   rooms.set(code, room);
   if (configInput && typeof configInput === "object") {
+    room.offline = configInput.offline === true;
     room.config = {
       witchCount: Number.isFinite(configInput.witchCount) ? configInput.witchCount : undefined,
       identityCardsPerPlayer: Number.isFinite(configInput.identityCardsPerPlayer) ? configInput.identityCardsPerPlayer : undefined,
     };
   }
   initRoom(room, ws, seat, token);
-  log("room created", code, seat.name);
+  log("room created", code, seat.name, room.offline ? "offline" : "");
 }
 
 function findSeatByToken(room, token) {
@@ -867,11 +881,17 @@ function startGameFromLobby(room, seatId) {
 function startDeal(room) {
   setPhase(room, "deal");
   room.dealAcks = new Set();
-  room.dealDeadline = clock.now() + DEAL_MS;
-  room.dealTimer = clock.after(() => {
+  if (room.offline) {
+    // 线下模式没有兜底：谁没确认就一直等着，由桌上的人互相催。
+    room.dealDeadline = null;
     room.dealTimer = null;
-    if (room.phase === "deal") finalizeDeal(room, true);
-  }, DEAL_MS + 500);
+  } else {
+    room.dealDeadline = clock.now() + DEAL_MS;
+    room.dealTimer = clock.after(() => {
+      room.dealTimer = null;
+      if (room.phase === "deal") finalizeDeal(room, true);
+    }, DEAL_MS + 500);
+  }
   broadcast(room, { type: "notice", message: "身份卡已发，请看卡确认。" });
   sync(room, true);
   // 机器人不等：进发牌相位立刻选第一张候选并确认。
@@ -912,8 +932,13 @@ function finalizeDeal(room, timedOut = false) {
   room.game = finishDeal(room.game);
   setPhase(room, "dawn");
   room.dawnVotes = new Map();
-  room.dawnDeadline = Date.now() + DAWN_MS;
-  room.dawnTimer = setTimeout(() => finalizeDawn(room, true), DAWN_MS + 500);
+  if (room.offline) {
+    room.dawnDeadline = null;
+    room.dawnTimer = null;
+  } else {
+    room.dawnDeadline = Date.now() + DAWN_MS;
+    room.dawnTimer = setTimeout(() => finalizeDawn(room, true), DAWN_MS + 500);
+  }
   broadcast(room, {
     type: "notice",
     message: timedOut ? "发牌确认超时，未确认者按第一张候选落定，黎明开始。" : "全员已确认身份卡，黎明开始。",

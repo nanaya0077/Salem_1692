@@ -12,7 +12,7 @@ const GROUPS = [
   {
     name: "fake-clock",
     env: { SALEM_FAKE_CLOCK: "1", DAWN_MS: "4000" },
-    scripts: ["smoke.mjs", "lifecycle.mjs", "profile.mjs", "bots_add.mjs", "deal.mjs", "reveal.mjs"],
+    scripts: ["smoke.mjs", "lifecycle.mjs", "profile.mjs", "bots_add.mjs", "deal.mjs", "reveal.mjs", "offline.mjs"],
   },
   { name: "real-clock", env: {}, scripts: ["resync.mjs", "fullgame_bots.mjs"] },
 ];
