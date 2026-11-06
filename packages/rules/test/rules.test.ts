@@ -17,6 +17,7 @@ import {
   project,
   resolveConfig,
   resolveConspiracyForTest,
+  resolvePendingReveal,
   resolveNight,
   beginNightForTest,
   confess,
@@ -27,6 +28,7 @@ import {
   updateConstable,
   witchCountOf,
   type CardId,
+  type GameEvent,
   type GameState,
   type IdentityKind,
   type RoleId,
@@ -46,6 +48,22 @@ function baseGame(roles: RoleId[] = ["none", "none", "none", "none"]): GameState
   const game = createGame({ playerCount: 4 }, { seed: 11, roles });
   for (let i = 0; i < 4; i++) setTrials(game, i, ["townspeople", "townspeople"]);
   return startGame(finishDeal(game), 0);
+}
+
+/** 走完挂起式揭示：按位置号取目标第一张未揭示的身份卡（“取第一张”兜底）。 */
+function settlePending(state: GameState): { state: GameState; events: GameEvent[] } {
+  let cur = state;
+  const events: GameEvent[] = [];
+  while (cur.pendingReveal) {
+    const pending = cur.pendingReveal;
+    const index = cur.players[pending.targetId].trials.findIndex((t) => !t.revealed);
+    const result = resolvePendingReveal(cur, pending.chooserId, { kind: "reveal", trialIndex: index });
+    assert.equal(result.ok, true, "挂起式揭示应能按位置号结算");
+    if (!result.ok) break;
+    events.push(...result.events);
+    cur = result.state;
+  }
+  return { state: cur, events };
 }
 
 test("中文旧版默认配比：9 人 1 女巫、共 35 张身份卡", () => {
@@ -99,17 +117,21 @@ test("发牌按身份卡总数分配；9 人默认 35 张为前 8 人 4 张、�
   assert.equal(custom.players.reduce((n, p) => n + witchCountOf(p), 0), 3);
 });
 
-test("红卡：达到门槛翻一张、清空红卡、揭示女巫即死亡并判平民胜", () => {
+test("红卡：达到门槛先进挂起，按位置号翻开女巫即死亡并判平民胜", () => {
   const game = baseGame();
   setTrials(game, 1, ["witch", "townspeople"]);
   setHands(game, [["witness"], [], [], []]);
   const result = playCard(game, { actorId: 0, cardId: "witness", targetId: 1 });
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.state.players[1].alive, false);
-  assert.equal(result.state.players[1].trials.every((t) => t.revealed), true);
-  assert.equal(result.state.players[1].accusations.length, 0);
-  assert.equal(result.state.winner, "town");
+  assert.ok(result.state.pendingReveal, "达到门槛先进挂起");
+  assert.equal(result.state.players[1].accusations.length, 1, "挂起期间红卡保留");
+  assert.equal(result.state.players[1].alive, true, "挂起期间不结算");
+  const settled = settlePending(result.state);
+  assert.equal(settled.state.players[1].alive, false);
+  assert.equal(settled.state.players[1].trials.every((t) => t.revealed), true);
+  assert.equal(settled.state.players[1].accusations.length, 0);
+  assert.equal(settled.state.winner, "town");
   assert.equal(game.players[1].alive, true, "纯函数：原状态不变");
 });
 
@@ -120,8 +142,9 @@ test("红卡不跨次累计：9 点只翻一张，多余点数丢弃", () => {
   const result = playCard(game, { actorId: 0, cardId: "evidence", targetId: 1 });
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.state.players[1].trials.filter((t) => t.revealed).length, 1);
-  assert.equal(result.state.players[1].accusations.length, 0);
+  const settled = settlePending(result.state);
+  assert.equal(settled.state.players[1].trials.filter((t) => t.revealed).length, 1);
+  assert.equal(settled.state.players[1].accusations.length, 0);
 });
 
 test("贾尔斯·科里：抽两张都是红卡时补抽第三张", () => {
@@ -165,7 +188,9 @@ test("乔治 8 点、托马斯对普通 6 点、对乔治 7 点", () => {
   if (!t1.ok) return;
   const t2 = playCard(t1.state, { actorId: 0, cardId: "evidence", targetId: 1 });
   assert.equal(t2.ok, true);
-  if (t2.ok) assert.equal(t2.state.players[1].trials.filter((t) => t.revealed).length, 1, "托马斯 6 点");
+  if (!t2.ok) return;
+  assert.equal(t2.state.pendingReveal?.canDecline, true, "托马斯对普通玩家 6 点可放弃");
+  assert.equal(settlePending(t2.state).state.players[1].trials.filter((t) => t.revealed).length, 1, "托马斯 6 点");
 });
 
 test("阿比盖尔：使目标翻牌时，弃自己面前红卡是可选项", () => {
@@ -175,13 +200,15 @@ test("阿比盖尔：使目标翻牌时，弃自己面前红卡是可选项", ()
   const without = playCard(game, { actorId: 0, cardId: "witness", targetId: 1 });
   assert.equal(without.ok, true);
   if (!without.ok) return;
-  assert.deepEqual(without.state.players[0].accusations, ["evidence"], "不声明则不弃");
+  assert.deepEqual(settlePending(without.state).state.players[0].accusations, ["evidence"], "不声明则不弃");
 
   const withPower = playCard(game, { actorId: 0, cardId: "witness", targetId: 1, useAbigail: true });
   assert.equal(withPower.ok, true);
   if (!withPower.ok) return;
-  assert.deepEqual(withPower.state.players[0].accusations, []);
-  assert.equal(withPower.events.some((e) => e.type === "powerUsed" && e.power === "abigail-williams"), true);
+  assert.deepEqual(withPower.state.players[0].accusations, ["evidence"], "挂起期间先不弃");
+  const settled = settlePending(withPower.state);
+  assert.deepEqual(settled.state.players[0].accusations, [], "揭示之后才弃");
+  assert.equal(settled.events.some((e) => e.type === "powerUsed" && e.power === "abigail-williams"), true);
 });
 
 test("科顿·马瑟：打在他面前的证据只算 1 点", () => {
@@ -206,7 +233,9 @@ test("信徒：红卡不能打给持有者，蓝卡可以；嫁祸移动红卡�
   // 嫁祸把来源的红卡移到信徒面前：移动不是“打出红卡”。
   const move = playCard(game, { actorId: 0, cardId: "scapegoat", sourceId: 1, targetId: 2 });
   assert.equal(move.ok, true);
-  if (move.ok) assert.equal(move.state.players[2].trials.filter((t) => t.revealed).length, 1);
+  if (!move.ok) return;
+  assert.ok(move.state.pendingReveal, "嫁祸达到门槛后挂起");
+  assert.equal(settlePending(move.state).state.players[2].trials.filter((t) => t.revealed).length, 1);
 });
 
 test("莎拉·古德：纵火无效并被丢弃；作为抢劫来源无效", () => {
@@ -241,7 +270,8 @@ test("抢劫转移整手牌；嫁祸移动全部面前牌并重算红卡", () =>
   if (!move.ok) return;
   assert.equal(move.state.players[1].accusations.length, 0);
   assert.equal(move.state.players[1].blue.length, 0);
-  assert.equal(move.state.players[2].trials.filter((t) => t.revealed).length, 1);
+  const settled = settlePending(move.state);
+  assert.equal(settled.state.players[2].trials.filter((t) => t.revealed).length, 1);
 });
 
 test("拘留：跳过下一个回合并在跳过时弃掉", () => {
@@ -268,8 +298,9 @@ test("诅咒：弃掉信徒后若已达门槛立刻翻牌", () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.state.players[1].blue.length, 0);
-  assert.equal(result.state.players[1].trials.filter((t) => t.revealed).length, 1);
-  assert.equal(result.state.players[1].accusations.length, 0);
+  const settled = settlePending(result.state);
+  assert.equal(settled.state.players[1].trials.filter((t) => t.revealed).length, 1);
+  assert.equal(settled.state.players[1].accusations.length, 0);
 });
 
 test("情侣：同一人不能拿第二张，另一个人可以配对", () => {
@@ -320,7 +351,7 @@ test("威尔·格里格斯：辩护可当 7 点目击；对信徒也可用", () 
   const result = playCard(game, { actorId: 0, cardId: "alibi", targetId: 1, asWitness: true });
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.state.players[1].trials.filter((t) => t.revealed).length, 1);
+  assert.equal(settlePending(result.state).state.players[1].trials.filter((t) => t.revealed).length, 1);
 });
 
 test("夜晚：庇护/木槌/自首可救；情侣连锁杀死搭档；玛丽免疫连锁", () => {
@@ -422,6 +453,34 @@ test("投影：不泄漏牌堆、他人手牌与未揭示身份；自己可见",
   const self = project(game, 1);
   assert.equal(self.self.trials[0].kind, "witch");
   assert.deepEqual(self.self.hand, ["witness"]);
+
+  // 挂起式揭示也进这张零泄漏扫描：非选择者投影里不许出现挂起字段或带类型的身份卡 id。
+  const pendingGame = baseGame();
+  setTrials(pendingGame, 1, ["witch", "townspeople", "townspeople"]);
+  setHands(pendingGame, [["witness"], [], [], []]);
+  const played = playCard(pendingGame, { actorId: 0, cardId: "witness", targetId: 1 });
+  assert.equal(played.ok, true);
+  if (!played.ok) return;
+  assert.ok(played.state.pendingReveal, "扫描用的局面确实处于挂起");
+  const forbidden = ["pendingReveal", "trialIndex", "trialId", "canDecline", "slots"];
+  for (const viewerId of [1, 2, 3]) {
+    const other = project(played.state, viewerId);
+    const text = JSON.stringify(other);
+    for (const key of forbidden) assert.equal(text.includes(key), false, "非选择者投影不含 " + key);
+    assert.equal("pendingReveal" in other, false, "非选择者投影没有挂起键");
+    const targetSeat = other.seats[1];
+    if (targetSeat.id !== viewerId) {
+      for (const trial of targetSeat.trials) assert.match(trial.id, /^hidden-/);
+      assert.equal(text.includes('"p1-t'), false, "带类型的身份卡 id 不出现");
+      assert.equal(text.includes("witch"), false, "身份卡类型不出现");
+    }
+  }
+  assert.deepEqual(project(played.state, 0).pendingReveal, {
+    chooserId: 0,
+    targetId: 1,
+    slots: ["hidden", "hidden", "hidden"],
+    canDecline: false,
+  });
 });
 
 test("投影：弃牌堆公开；牌堆顺序仅蒂图巴本人可见", () => {
@@ -456,9 +515,11 @@ test("丽贝卡·诺斯：他人因指控翻牌时由丽贝卡自己抽 1，而�
   const result = playCard(game, { actorId: 2, cardId: "witness", targetId: 1 });
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.state.players[0].hand.length, 1, "丽贝卡抽牌");
-  assert.equal(result.state.players[2].hand.length, 0, "当前玩家不因丽贝卡能力抽牌");
-  assert.equal(result.events.some((e) => e.type === "cardDrawn" && e.playerId === 0), true);
+  assert.equal(result.state.players[0].hand.length, 0, "揭示之前丽贝卡不抽牌");
+  const settled = settlePending(result.state);
+  assert.equal(settled.state.players[0].hand.length, 1, "揭示之后丽贝卡抽牌");
+  assert.equal(settled.state.players[2].hand.length, 0, "当前玩家不因丽贝卡能力抽牌");
+  assert.equal(settled.events.some((e) => e.type === "cardDrawn" && e.playerId === 0), true);
 });
 
 test("12 人默认 2 女巫、每人 3 张身份卡；初始牌堆守恒", () => {

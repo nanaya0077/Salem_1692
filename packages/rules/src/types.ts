@@ -89,6 +89,36 @@ export interface PlayerState {
   used: PlayerUsed;
 }
 
+/** 挂起式揭示的起因：只有这三处会挂起，传染与自首保持自动揭示第一张。 */
+export type RevealCause = "accusation" | "curse" | "scapegoat";
+
+/**
+ * 挂起式揭示：达到门槛后停在这里，等选择者按位置号指定要翻开的身份卡。
+ * 同一时刻最多一个。身份卡 id 里带类型，所以对外只发位置号。
+ */
+export interface PendingReveal {
+  targetId: number;
+  chooserId: number;
+  cause: RevealCause;
+  /** 只有「托马斯·丹福斯把普通玩家压到第 6 点」才允许放弃。 */
+  canDecline: boolean;
+  /** 打出达到门槛那张牌的玩家是否声明使用阿比盖尔能力；结算揭示时才生效。 */
+  useAbigail: boolean;
+}
+
+export type TrialSlot = "hidden" | "revealed";
+
+/** 挂起态的对外投影：只投给选择者，只有位置号，没有卡 id。 */
+export interface PendingRevealView {
+  chooserId: number;
+  targetId: number;
+  /** 长度 = 目标面前身份卡张数。 */
+  slots: TrialSlot[];
+  canDecline: boolean;
+}
+
+export type RevealCommand = { kind: "reveal"; trialIndex: number } | { kind: "decline" };
+
 export interface TurnState {
   playerId: number;
   actionTaken: boolean;
@@ -120,6 +150,8 @@ export interface GameState {
   currentPlayerId: number;
   turn: TurnState;
   night: NightState | null;
+  /** 挂起式揭示；null 表示没有等待中的选择。 */
+  pendingReveal: PendingReveal | null;
   winner: Winner;
   winnerReason: string | null;
   constableId: number | null;
@@ -216,6 +248,8 @@ export interface Projection {
   self: SelfView;
   seats: PublicPlayer[];
   night: { active: boolean; targetKnown: boolean } | null;
+  /** 只有选择者本人收到这个键；其他人的投影里键不存在。 */
+  pendingReveal?: PendingRevealView;
 }
 
 export interface ActionOk {
