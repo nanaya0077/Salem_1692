@@ -16,7 +16,7 @@
 | 服务 | `salem-online` / `bb45b318-2ee6-4448-9063-fd6f36e8d47c` |
 | 环境 | `production` / `2dcec8b2-89bb-4258-a198-46f12a54f21a` |
 | 构建 | `builder: DOCKERFILE`、`dockerfilePath: /Dockerfile` |
-| 构建 commit | 线上现役 `644d661`（翻牌 3D 与全桌横幅，部署 `2540b2aa-…`）；同一环境里还留着 `7f24a3e`（`f2f9eef0-…`）、`33b9e5e`（`4e2cfb93-…`）、`49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）六份可回滚部署 |
+| 构建 commit | 线上现役 `9c5ab94`（不再显示曾为女巫，部署 `136e2e77-…`）；同一环境里还留着 `644d661`（`2540b2aa-…`）、`7f24a3e`（`f2f9eef0-…`）、`33b9e5e`（`4e2cfb93-…`）、`49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）七份可回滚部署 |
 | 副本 | `numReplicas: 1` |
 | 区域 | `multiRegionConfig: { asia-southeast1-eqsg3a: { numReplicas: 1 } }`（Singapore 单区） |
 | 健康检查 | `healthcheckPath: /health`，`healthcheckTimeout: 300` 秒 |
@@ -148,6 +148,12 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 - 这一版之前横幅曾贴 `top: 14px`（`salem-v9`），在 390 宽下会盖住「轮到谁 · 剩余秒数」，因此有了 `644d661` 这次纯样式修正；代价是 sw 壳必须再升一版，否则离线壳仍发旧 `styles.css`。
 - 验证时踩到的坑：`getComputedStyle` 在刚加 class 的同一帧读到的是 transition 起点（identity matrix），要验终态得用静止带 class 的元素或 `transition: none`；ego 浏览器进程长时间运行后会僵死（`PageNavigationTimeoutError` / `PageEvaluationTimeoutError`），要 `Get-Process -Name ego | Stop-Process -Force` 杀光全部 ego 进程让它自动重启。
 
+**证据位 E8（发布 `9c5ab94`：不再显示曾为女巫）· 已回填 2026-11-06**：
+- 发布对象 `main` @ `9c5ab94`（`feat(web): 不再显示某人是否曾为女巫`）；调用 `serviceInstanceDeployV2` → 部署 `136e2e77-971c-425d-b443-3502be07498d`，轮询第 5 次约 36 秒转成功。
+- 版本探针：`/sw.js` `salem-v10` → **`salem-v11`**；`/app.js` 71052 bytes，**不含**「曾为女巫」、**不含** `everWitch`；`/styles.css` **不含** `.over-role.witch`。
+- 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":14.76}`；`deploy-smoke.mjs` 全部通过。
+- 依据：`docs/research/salem-1692-card-and-rules-facts.md:301` 记「第二版死亡时公开；第 15 版不公开；服务器始终知道」，本仓库按第 15 版，故只在展示层撤掉，服务端与规则层照旧用该字段判定阵营、黑猫与黎明投票。
+
 ## 看日志与排障
 
 - 运行日志在服务 → Logs；客户端连不上的第一件事是看有没有 `salem server listening` 行、有没有进程崩溃栈。
@@ -188,6 +194,7 @@ $env:BASE="http://127.0.0.1:8137"; node apps/server/test/deploy-smoke.mjs
 | 角色卡浮层与开局锁资料已上线 | 已通过 2026-11-06 | 证据位 E5：部署 `97f2772a-…` / commit `49057d3` / `/sw.js` 变 `salem-v7`、首页含 `id="roleModal"`、五个角色牌面 200、冒烟 9/9、真浏览器技能行与三种点击实测 |
 | 线下模式已上线（建房勾选后全程无倒计时） | 已通过 2026-11-06 | 证据位 E6：部署 `4e2cfb93-…` / commit `33b9e5e` / `/sw.js` 变 `salem-v8`、首页含 `id="offlineMode"`、冒烟 9/9、真浏览器从建房到白天全程「不限时」 |
 | 身份卡双面翻牌与翻牌全桌横幅已上线 | 已通过 2026-11-06 | 证据位 E7：部署 `2540b2aa-…` / commit `644d661` / `/sw.js` 变 `salem-v10`、首页含 `id="revealBanner"`、冒烟 9/9、真浏览器验证 3D 三态与横幅落在桌面正中且不压顶栏 |
+| 界面不再显示曾为女巫 | 已通过 2026-11-06 | 证据位 E8：部署 `136e2e77-…` / commit `9c5ab94` / `/sw.js` 变 `salem-v11`、线上 `/app.js` 与 `/styles.css` 均查不到该字段与对应样式、冒烟通过 |
 
 公网冒烟实测输出（2026-11-06，发布 `3c751ae` 之后立刻跑，`/health` 报 `uptime` 约 19 秒，与发布时刻对齐）：
 
