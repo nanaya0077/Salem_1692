@@ -1,8 +1,11 @@
-const VERSION = "salem-v1";
+// 缓存对 app.js 是 cache-first，改客户端脚本时必须同步升版本号，
+// 否则已装过旧版的浏览器会一直跑旧脚本，线上等于没修。
+const VERSION = "salem-v2";
 const SHELL = [
   "/",
   "/styles.css",
   "/app.js",
+  "/reconnect.js",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -42,7 +45,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   const cacheable = url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") ||
-    ["/styles.css", "/app.js", "/manifest.webmanifest"].includes(url.pathname);
+    ["/styles.css", "/app.js", "/reconnect.js", "/manifest.webmanifest"].includes(url.pathname);
   if (!cacheable) return;
 
   event.respondWith(
