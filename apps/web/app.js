@@ -188,7 +188,7 @@ function isHost() {
   return S.room?.hostSeat === S.seatId;
 }
 
-/** 挂起揭示期谁都动不了：选择者要选位置，其他人等；规则层同样会拒（pending-reveal）。 */
+/** 挂起揭示期谁都动不了：选择者要选位置，其他人等；规则层同样会拒（reveal-pending）。 */
 function revealLocked() {
   return actionsLocked({ pendingReveal: S.projection?.pendingReveal, revealWait: S.revealWait });
 }
@@ -285,7 +285,7 @@ function handle(msg) {
       S.deal = msg.deal ?? null;
       // 挂起揭示的公开信号在消息顶层：选择者另有 projection.pendingReveal，其他人只有这一条。
       S.revealWait = msg.revealWait ?? null;
-          if (msg.room) S.room = msg.room;
+      if (msg.room) S.room = msg.room;
       render();
       break;
     case "events":
@@ -532,7 +532,7 @@ function renderGame() {
     return;
   }
   const my = p.self;
-  const locked = actionsLocked({ pendingReveal: p.pendingReveal, revealWait: S.revealWait });
+  const locked = revealLocked();
   const opponents = p.seats.filter((s) => s.id !== S.seatId);
   $("opponents").innerHTML = opponents.map((player) => {
     const classes = ["seat-card"];
@@ -584,7 +584,7 @@ function renderGame() {
   $("centerHint").textContent = hint;
 
   if (p.phase === "action" && locked) {
-    // 挂起揭示期抽牌 / 出牌 / 结束回合都会被规则层拒（pending-reveal），按钮先禁掉。
+    // 挂起揭示期抽牌 / 出牌 / 结束回合都会被规则层拒（reveal-pending），按钮先禁掉。
     $("actionBar").innerHTML = '<button class="btn primary" data-act="end" disabled>结束回合</button>' +
       '<button class="btn gold" data-act="draw" disabled>抽 2 张并结束</button>';
   } else if (p.phase === "action" && myTurn()) {
@@ -742,7 +742,7 @@ function renderRevealBar() {
       const trial = trials[slot.index];
       const face = slot.revealed ? card(trialFaceCardId(trial?.kind ?? "townspeople")) : null;
       const image = face && face.image ? face.image : TRIAL_BACK_IMAGE;
-      const caption = slot.revealed ? (face?.name ?? slot.label) : "#" + (slot.index + 1);
+      const caption = slot.revealed ? (face?.name ?? "身份卡") : "#" + (slot.index + 1);
       return '<button type="button" class="reveal-slot' + (slot.revealed ? " revealed " + trialTone(trial?.kind) : "") +
         '"' + (slot.disabled ? " disabled" : "") + ' data-reveal-index="' + slot.index +
         '" aria-label="' + esc(caption) + '">' +
@@ -841,7 +841,7 @@ function renderOverlays() {
   $("nightOverlay").hidden = phase !== "night";
   $("dawnOverlay").hidden = phase !== "dawn";
   $("overOverlay").hidden = phase !== "gameOver";
-  $("chatBar").hidden = !(S.room && S.room.phase !== "lobby" && phase !== "gameOver" && phase !== "deal");
+  $("chatBar").hidden = !(S.room && S.room.phase !== "lobby" && phase !== "gameOver");
   if (phase === "deal") renderDeal();
   if (phase === "night") renderNight();
   if (phase === "dawn") renderDawn();

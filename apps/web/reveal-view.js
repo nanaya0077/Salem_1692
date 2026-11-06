@@ -15,12 +15,8 @@ export function slotView(slots) {
   if (!Array.isArray(slots)) return [];
   return slots.map((slot, index) => {
     const revealed = slot !== HIDDEN;
-    return {
-      index,
-      revealed,
-      disabled: revealed,
-      label: revealed ? "已揭示" : "第 " + (index + 1) + " 张",
-    };
+    // 位置号只用来定位按钮（规格决策 18：判定一律点数口径，不出现「第几张」）。
+    return { index, revealed, disabled: revealed };
   });
 }
 
@@ -42,7 +38,7 @@ export function revealWaitText(wait, nameOf) {
 }
 
 /**
- * 挂起期抽牌 / 出牌 / 结束回合都会被规则层拒掉（reason: pending-reveal），
+ * 挂起期抽牌 / 出牌 / 结束回合都会被规则层拒掉（reason: reveal-pending），
  * 选择者本人也一样，所以两种信号都算锁。
  */
 export function actionsLocked(state) {
@@ -59,7 +55,12 @@ export function revealLogText(event, options = {}) {
   const who = seatLabel(event?.playerId, nameOf);
   const chooser = seatLabel(event?.chooserId, nameOf);
   const kind = typeof label === "function" ? label(event?.kind) : event?.kind;
-  let text = who + " 由 " + chooser + " 选择翻开了一张身份卡（" + (kind ?? "身份卡") + "）。";
+  const name = kind ?? "身份卡";
+  // 传染与自首是规则层直接翻的（已知偏差），没有「谁选了位置」这回事：
+  // 传染的 chooserId 是抽牌者、自首的 chooserId 是自己，照抄「由谁选择」会写出假话。
+  if (event?.cause === "conspiracy") return who + " 被传染：翻开了一张身份卡（" + name + "）。";
+  if (event?.cause === "confession") return who + " 自首，翻开了自己一张身份卡（" + name + "）。";
+  let text = who + " 由 " + chooser + " 选择翻开了一张身份卡（" + name + "）。";
   if (auto) text += "（超时或托管，自动取了第一个位置。）";
   return text;
 }

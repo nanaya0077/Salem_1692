@@ -15,9 +15,9 @@ const label = (kind) => ({ witch: "女巫", constable: "警长", townspeople: "�
 
 test("位置条按目标面前的身份卡张数渲染，已揭示的位置不可点", () => {
   assert.deepEqual(slotView(["hidden", "revealed", "hidden"]), [
-    { index: 0, revealed: false, disabled: false, label: "第 1 张" },
-    { index: 1, revealed: true, disabled: true, label: "已揭示" },
-    { index: 2, revealed: false, disabled: false, label: "第 3 张" },
+    { index: 0, revealed: false, disabled: false },
+    { index: 1, revealed: true, disabled: true },
+    { index: 2, revealed: false, disabled: false },
   ]);
   assert.deepEqual(slotView(undefined), []);
   assert.deepEqual(slotView([]), []);
@@ -53,6 +53,14 @@ test("事件带 auto 时同一句里点明是自动取的第一个位置", () =>
   const text = revealLogText(event, { nameOf, label });
   assert.ok(text.includes("约翰·普罗克特 由 安妮·普特南 选择翻开了一张身份卡（警长）"), text);
   assert.ok(text.includes("自动") && text.includes("第一个位置"), text);
+});
+
+// 传染与自首由规则层直接翻（已知偏差），没有「谁选了位置」这回事，句式不能写成是有人选的。
+test("传染与自首的日志不复用「由谁选择翻开」的句式", () => {
+  const conspiracy = { type: "trialRevealed", playerId: 2, kind: "townspeople", cause: "conspiracy", chooserId: 1 };
+  assert.equal(revealLogText(conspiracy, { nameOf, label }), "约翰·普罗克特 被传染：翻开了一张身份卡（平民）。");
+  const confession = { type: "trialRevealed", playerId: 2, kind: "witch", cause: "confession", chooserId: 2 };
+  assert.equal(revealLogText(confession, { nameOf, label }), "约翰·普罗克特 自首，翻开了自己一张身份卡（女巫）。");
 });
 
 test("事件没有 auto（或 auto: false）时不加自动后缀，同局其它揭示也不受牵连", () => {
