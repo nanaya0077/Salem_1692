@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { passDealPhase } from "./lib/deal.mjs";
 
 const BASE = process.env.BASE || "http://127.0.0.1:8101";
 const WS = BASE.replace(/^http/, "ws") + "/ws";
@@ -55,6 +56,10 @@ for (const c of clients) c.send({ type: "ready", ready: true });
 await waitFor("ready", () => clients.every((c) => c.room?.startable), 5000);
 
 clients[0].send({ type: "start" });
+// 发牌相位（#10）：各自选角并确认，全员确认后服务端推进到黎明。
+for (const c of clients) {
+  await passDealPhase({ seatId: c.seatId, getProjection: () => c.projection, getPrivate: () => c.private, send: (m) => c.send(m), waitFor });
+}
 await waitFor("dawn", () => clients.every((c) => c.projection?.phase === "dawn"), 8000);
 console.log("dawn phase ok; witches", clients.filter((c) => c.private?.dawn?.isWitch).map((c) => c.name));
 

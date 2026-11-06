@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import WebSocket from "ws";
+import { passDealPhase } from "./lib/deal.mjs";
 
 const BASE = process.env.BASE || "http://127.0.0.1:8080";
 const WS = BASE.replace(/^http/, "ws") + "/ws";
@@ -48,6 +49,14 @@ assert.equal(room.startable, true, "bots should be ready and connected");
 console.log("seats", room.seats.map((s) => s.name + (s.bot ? "(bot)" : "") + "#" + s.id).join(", "));
 
 ws.send(JSON.stringify({ type: "start" }));
+// 机器人自己选角确认；房主这一步补齐就推进到黎明。
+await passDealPhase({
+  seatId,
+  getProjection: () => projection,
+  getPrivate: () => privateState,
+  send: (m) => ws.send(JSON.stringify(m)),
+  waitFor,
+});
 await waitFor("dawn", () => projection?.phase === "dawn");
 if (privateState?.dawn?.isWitch && !privateState.dawn.submitted) {
   ws.send(JSON.stringify({ type: "action", commandId: "dawn-host", action: { kind: "dawn", targetId: 0 } }));

@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import assert from "node:assert/strict";
+import { passDealPhase } from "./lib/deal.mjs";
 
 const BASE = process.env.BASE || "http://127.0.0.1:8103";
 const WS = BASE.replace(/^http/, "ws") + "/ws";
@@ -111,6 +112,9 @@ for (const c of remaining) c.send({ type: "ready", ready: true });
 await waitFor("startable", () => host.room?.startable, 5000);
 const resyncsBefore = new Map(remaining.map((c) => [c.name, c.resyncs.length]));
 host.send({ type: "start" });
+for (const c of remaining) {
+  await passDealPhase({ seatId: c.seatId, getProjection: () => c.projection, getPrivate: () => c.private, send: (m) => c.send(m), waitFor });
+}
 await waitFor("dawn", () => remaining.every((c) => c.projection?.phase === "dawn"), 8000);
 
 for (const c of remaining) {

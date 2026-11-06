@@ -8,6 +8,7 @@ import {
   CARD_CATALOG,
   beginNightForTest,
   canPlayCard,
+  chooseRole,
   createGame,
   defaultConfigFor,
   defaultNightChoice,
@@ -30,6 +31,8 @@ const WEB = resolve(ROOT, "apps/web");
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
 const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
+/** 发牌相位兜底：截止前没确认完的座位按第一张候选与「已确认」处理。 */
+const DEAL_MS = Number(process.env.DEAL_MS || 20000);
 const NIGHT_MS = Number(process.env.NIGHT_MS || 30000);
 const DAWN_MS = Number(process.env.DAWN_MS || 45000);
 const TURN_MS = Number(process.env.TURN_MS || 90000);
@@ -57,7 +60,57 @@ const AVATAR_TYPES = [
 ];
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-/** @typedef {"lobby"|"dawn"|"playing"|"night"|"over"} RoomPhase */
+/**
+ * 时钟缝（#10）：发牌相位的截止时间与兜底计时只走 clock，生产环境就等于 Date.now/setTimeout。
+ * SALEM_FAKE_CLOCK=1 时改成手动推进（测试专用：{ type: "clock", advance: 毫秒 }），
+ * 生命周期测试据此把 20 秒兜底推过去，不真实等待。只覆盖发牌相位，
+ * 回合/黎明/夜晚仍走真定时器，不为测试重写调度。
+ */
+const FAKE_CLOCK = process.env.SALEM_FAKE_CLOCK === "1";
+let fakeNow = Date.now();
+let fakeTimerSeq = 0;
+const fakeTimers = new Map();
+const clock = {
+  now: () => (FAKE_CLOCK ? fakeNow : Date.now()),
+  after(fn, ms) {
+    if (!FAKE_CLOCK) return setTimeout(fn, ms);
+    const id = ++fakeTimerSeq;
+    fakeTimers.set(id, { at: fakeNow + Math.max(0, ms), fn });
+    return { fakeId: id };
+  },
+  cancel(handle) {
+    if (!FAKE_CLOCK) {
+      clearTimeout(handle);
+      return;
+    }
+    if (handle && handle.fakeId) fakeTimers.delete(handle.fakeId);
+  },
+};
+
+/** 推进假时钟，按到期顺序触发定时器；返回触发个数。 */
+function advanceClock(ms) {
+  const target = fakeNow + Math.max(0, ms);
+  let fired = 0;
+  for (;;) {
+    let nextId = null;
+    let nextAt = Infinity;
+    for (const [id, timer] of fakeTimers) {
+      if (timer.at > target || timer.at >= nextAt) continue;
+      nextId = id;
+      nextAt = timer.at;
+    }
+    if (nextId === null) break;
+    const timer = fakeTimers.get(nextId);
+    fakeTimers.delete(nextId);
+    fakeNow = Math.max(fakeNow, timer.at);
+    fired += 1;
+    timer.fn();
+  }
+  fakeNow = target;
+  return fired;
+}
+
+/** @typedef {"lobby"|"deal"|"dawn"|"playing"|"night"|"over"} RoomPhase */
 
 const rooms = new Map();
 const sockets = new Map();
@@ -230,6 +283,15 @@ function nightRequired(room) {
   return required;
 }
 
+/**
+ * 发牌相位的房间层状态：谁确认看完身份卡、本阶段何时截止。
+ * 只报「确认过没有」，不记录看过几张——重连要从第一张重开。
+ */
+function dealView(room) {
+  if (!room.game || room.game.phase !== "deal") return null;
+  return { acked: [...room.dealAcks].sort((a, b) => a - b), deadline: room.dealDeadline };
+}
+
 function privateState(room, seat) {
   const game = room.game;
   if (!game) return null;
@@ -242,6 +304,7 @@ function privateState(room, seat) {
     everWitch: player.everWitch,
     isConstable: game.constableId === seat.id,
     auto: Boolean(seat.auto),
+    acknowledged: room.phase !== "deal" || room.dealAcks.has(seat.id),
     turnDeadline: game.phase === "action" ? room.turnDeadline ?? null : null,
   };
   if (game.phase === "dawn") {
@@ -301,6 +364,7 @@ function sync(room, reissue = false) {
       type: "projection",
       projection: project(room.game, seat.id),
       private: privateState(room, seat),
+      deal: dealView(room),
       room: pub,
       ...(reissue ? { resync: mine(seat) } : {}),
     });
@@ -365,7 +429,7 @@ function botTurnSeat(room) {
 }
 
 function hasBotWork(room) {
-  return pendingBotVotes(room).length > 0 || Boolean(botTurnSeat(room));
+  return pendingBotDeal(room).length > 0 || pendingBotVotes(room).length > 0 || Boolean(botTurnSeat(room));
 }
 
 function scheduleBots(room) {
@@ -380,6 +444,10 @@ function scheduleBots(room) {
 
 function runBotStep(room) {
   if (!room.game || room.game.winner) return;
+  if (room.phase === "deal") {
+    runBotDeal(room);
+    return;
+  }
   if (room.phase === "dawn") {
     const pending = pendingBotVotes(room);
     for (const id of pending) {
@@ -477,6 +545,12 @@ function setPhase(room, phase) {
     clearTimeout(room.dawnTimer);
     room.dawnTimer = null;
   }
+  if (room.phase !== "deal") {
+    room.dealAcks = new Set();
+    room.dealDeadline = null;
+    clock.cancel(room.dealTimer);
+    room.dealTimer = null;
+  }
 }
 
 function finishIfOver(room) {
@@ -544,6 +618,10 @@ function createRoom(ws, name, configInput) {
     game: null,
     config: {},
     seenCommands: new Set(),
+    /** 发牌相位（#10）：已确认看过身份卡的座位、本阶段截止、兜底计时。 */
+    dealAcks: new Set(),
+    dealDeadline: null,
+    dealTimer: null,
     dawnVotes: new Map(),
     nightVotes: new Map(),
     turnTimer: null,
@@ -675,6 +753,7 @@ function leaveRoom(ws) {
 function cleanupRoom(room) {
   clearTimeout(room.nightTimer);
   clearTimeout(room.dawnTimer);
+  clock.cancel(room.dealTimer);
   clearTurnTimer(room);
   clearTimeout(room.botTimer);
   room.botTimer = null;
@@ -717,26 +796,120 @@ function startGameFromLobby(room, seatId) {
   // 重编号改了每个连接自己的座位号：sync 要把新座位表、新座位号、头像表一起发下去。
   normalizeSeatIds(room);
   try {
-    // 发牌相位暂由服务端立即落定，角色确认与超时兜底见 #10。
-    room.game = finishDeal(createGame(
+    room.game = createGame(
       { playerCount: room.seats.length, ...room.config },
       {
         names: room.seats.map((s) => s.name),
         seed: randomBytes(4).readUInt32LE(0),
       },
-    ));
+    );
   } catch (error) {
     return sendError(seatOf(room, seatId)?.ws, String(error.message || error), "start-failed");
   }
   room.config = { ...room.game.config };
   room.startedAt = Date.now();
+  startDeal(room);
+  log("game started", room.code, room.seats.length);
+}
+
+/** 发牌相位：全员选好角色且确认身份卡才推进，DEAL_MS 到期兜底。 */
+function startDeal(room) {
+  setPhase(room, "deal");
+  room.dealAcks = new Set();
+  room.dealDeadline = clock.now() + DEAL_MS;
+  room.dealTimer = clock.after(() => {
+    room.dealTimer = null;
+    if (room.phase === "deal") finalizeDeal(room, true);
+  }, DEAL_MS + 500);
+  broadcast(room, { type: "notice", message: "身份卡已发，请看卡确认。" });
+  sync(room, true);
+  // 机器人不等：进发牌相位立刻选第一张候选并确认。
+  runBotDeal(room);
+}
+
+/** 还有人没选好角色或没确认，就该停在发牌相位。 */
+function dealPending(room) {
+  if (!room.game || room.game.phase !== "deal") return false;
+  return room.seats.some((seat) => {
+    const player = room.game.players[seat.id];
+    if (!player) return false;
+    return !player.roleChosen || !room.dealAcks.has(seat.id);
+  });
+}
+
+function pendingBotDeal(room) {
+  if (room.phase !== "deal" || !room.game) return [];
+  return room.seats
+    .filter((seat) => seat.bot && (!room.game.players[seat.id]?.roleChosen || !room.dealAcks.has(seat.id)))
+    .map((seat) => seat.id);
+}
+
+function maybeAdvanceDeal(room) {
+  if (room.phase !== "deal" || dealPending(room)) return false;
+  finalizeDeal(room, false);
+  return true;
+}
+
+/**
+ * 离开发牌相位：未选角色者保留第一张候选，未确认者视作已确认（finishDeal 落定角色），
+ * 随即走既有黎明流程。
+ */
+function finalizeDeal(room, timedOut = false) {
+  if (!room.game || room.game.phase !== "deal") return;
+  clock.cancel(room.dealTimer);
+  room.dealTimer = null;
+  room.game = finishDeal(room.game);
   setPhase(room, "dawn");
   room.dawnVotes = new Map();
   room.dawnDeadline = Date.now() + DAWN_MS;
   room.dawnTimer = setTimeout(() => finalizeDawn(room, true), DAWN_MS + 500);
-  broadcast(room, { type: "notice", message: "身份卡已发，黎明开始。" });
-  sync(room, true);
-  log("game started", room.code, room.seats.length);
+  broadcast(room, {
+    type: "notice",
+    message: timedOut ? "发牌确认超时，未确认者按第一张候选落定，黎明开始。" : "全员已确认身份卡，黎明开始。",
+  });
+  sync(room);
+  log("deal resolved", room.code, timedOut ? "timeout" : "acked");
+}
+
+function chooseRoleForSeat(room, seatId, roleId) {
+  const seat = seatOf(room, seatId);
+  if (!seat) return;
+  if (!room.game || room.game.phase !== "deal") return sendError(seat.ws, "当前不是发牌相位", "not-deal-phase");
+  const result = chooseRole(room.game, seatId, roleId);
+  if (!result.ok) return sendError(seat.ws, result.reason || "选角失败", result.reason);
+  room.game = result.state;
+  if (result.events?.length) broadcast(room, { type: "events", events: result.events });
+  if (!maybeAdvanceDeal(room)) sync(room);
+}
+
+function ackDeal(room, seatId) {
+  const seat = seatOf(room, seatId);
+  if (!seat) return;
+  if (!room.game || room.game.phase !== "deal") return sendError(seat.ws, "当前不是发牌相位", "not-deal-phase");
+  if (!room.game.players[seatId]?.roleChosen) return sendError(seat.ws, "请先选好角色", "role-not-chosen");
+  room.dealAcks.add(seatId);
+  if (!maybeAdvanceDeal(room)) sync(room);
+}
+
+function runBotDeal(room) {
+  const pending = pendingBotDeal(room);
+  if (!pending.length) return;
+  for (const id of pending) {
+    const player = room.game.players[id];
+    if (!player) continue;
+    if (!player.roleChosen) {
+      const option = player.roleOptions?.[0];
+      if (option) {
+        const result = chooseRole(room.game, id, option);
+        if (result.ok) {
+          room.game = result.state;
+          log("bot role", room.code, id, option);
+        }
+      }
+    }
+    room.dealAcks.add(id);
+  }
+  if (!maybeAdvanceDeal(room)) sync(room);
 }
 
 function finalizeDawn(room, timedOut = false) {
@@ -853,6 +1026,12 @@ function handleAction(room, seatId, action, commandId) {
   const seat = seatOf(room, seatId);
   if (!seat) return;
   if (room.phase === "over") return sendError(seat.ws, "对局已结束", "game-over");
+  // 发牌期间只收选角与确认，抽牌/出牌/结束回合一律拒绝（#10）。
+  if (room.phase === "deal" || room.game.phase === "deal") {
+    if (action?.kind === "chooseRole") return chooseRoleForSeat(room, seatId, action.roleId);
+    if (action?.kind === "dealAck") return ackDeal(room, seatId);
+    return sendError(seat.ws, "发牌期间不能行动", "deal-phase");
+  }
   if (action?.kind === "night") return submitNight(room, seatId, action);
   if (action?.kind === "dawn") return submitDawn(room, seatId, action.targetId);
   if (room.phase !== "playing" || room.game.phase !== "action") return sendError(seat.ws, "当前不能行动", "not-action-phase");
@@ -872,6 +1051,12 @@ function handleMessage(ws, raw) {
   try { message = JSON.parse(raw.toString()); } catch { return sendError(ws, "消息不是合法 JSON", "bad-json"); }
   const type = message?.type;
   if (type === "ping") return send(ws, { type: "pong", t: Date.now() });
+  if (type === "clock") {
+    // 测试专用：仅在 SALEM_FAKE_CLOCK=1 下推进假时钟，别的时候按未知消息处理。
+    if (!FAKE_CLOCK) return sendError(ws, "未知消息类型", "unknown-message");
+    const fired = advanceClock(Number(message.advance) || 0);
+    return send(ws, { type: "clock", now: fakeNow, fired });
+  }
   if (type === "create") return createRoom(ws, message.name, message.config);
   if (type === "join") return joinRoom(ws, message.code, message.name, message.token);
   const meta = sockets.get(ws);
