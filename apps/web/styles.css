@@ -192,9 +192,25 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .self-name { font-size: 13px; font-weight: 700; }
 .self-role { font-size: 11px; color: var(--gold); margin-top: 2px; }
 .self-trials { display: flex; gap: 4px; flex-wrap: wrap; }
+/* 自己那排身份卡：横向滚动卡片条，整条占满自己那一栏的第二行。 */
+.self-panel { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+.self-trials.trial-strip { grid-column: 1 / -1; flex-wrap: nowrap; gap: 5px; overflow-x: auto; scrollbar-width: none; padding: 1px 0 3px; }
+.self-trials.trial-strip::-webkit-scrollbar { display: none; }
+.trial-card {
+  flex: none; width: 60px; padding: 0; position: relative; overflow: hidden; border-radius: 8px;
+  border: 1px solid rgba(219,188,138,.28); background: #1d1410; box-shadow: 0 6px 14px rgba(0,0,0,.35);
+}
+.trial-card img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; }
+.trial-card.revealed { border-color: rgba(216,169,76,.6); }
+.trial-tone { position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.55); }
+.trial-tone.on { background: var(--gold); }
+.trial-tone.witch { background: var(--blood2); }
+.trial-tone.constable { background: var(--blue); }
 .trial-chip { font-size: 9px; padding: 2px 5px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); }
 .trial-chip.revealed { color: var(--ink); background: rgba(216,169,76,.12); }
 .trial-chip.witch { color: #ffb3a8; border-color: rgba(212,87,75,.5); }
+.trial-chip.constable { color: #a8c8ff; border-color: rgba(90,130,200,.5); }
+.trial-chip.on { color: var(--gold); border-color: rgba(216,169,76,.5); }
 
 .hand {
   flex: none; display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px;
@@ -309,6 +325,50 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
   color: #fff2e8; font-size: 13px; box-shadow: var(--shadow); text-align: center;
 }
 .toast.ok { background: rgba(64,104,66,.96); }
+
+
+/* 发牌确认屏 */
+.overlay.deal { background: radial-gradient(120% 90% at 50% 0%, #2a2118, #0c0807 70%); }
+.deal-panel { text-align: left; }
+.deal-panel h2 { text-align: center; }
+.deal-panel .eyebrow { text-align: center; display: block; }
+.deal-count { color: var(--muted); font-size: 11px; letter-spacing: .04em; margin-left: 6px; }
+.deal-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.deal-roles.single { grid-template-columns: minmax(0, 200px); justify-content: center; }
+.deal-role {
+  padding: 0; position: relative; overflow: hidden; border-radius: 10px; text-align: center;
+  border: 1px solid var(--line); background: rgba(40,28,22,.85);
+}
+.deal-role img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; }
+.deal-role-name { display: block; padding: 7px 4px; font-size: 12px; color: var(--parchment); }
+.deal-role.chosen { border-color: var(--gold); background: rgba(216,169,76,.14); }
+.deal-role-tag { position: absolute; top: 6px; left: 6px; padding: 2px 7px; border-radius: 999px; background: rgba(216,169,76,.92); color: #201508; font-size: 9px; }
+.deal-cards { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 4px; }
+.deal-cards::-webkit-scrollbar { display: none; }
+.deal-card {
+  flex: none; width: 78px; padding: 0; position: relative; overflow: hidden; border-radius: 9px;
+  border: 1px solid rgba(219,188,138,.28); background: #1d1410; box-shadow: 0 6px 14px rgba(0,0,0,.35);
+}
+.deal-card img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; }
+.deal-card.flipped { border-color: rgba(216,169,76,.65); }
+.deal-card-cap {
+  position: absolute; inset: auto 0 0; padding: 12px 4px 4px; font-size: 10px; text-align: center;
+  color: var(--parchment); background: linear-gradient(transparent, rgba(8,6,5,.92));
+}
+.deal-seats { display: grid; gap: 6px; margin: 12px 0 14px; }
+.deal-seat { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+.deal-seat .avatar { width: 26px; height: 26px; font-size: 11px; }
+.deal-seat-main { flex: 1; min-width: 0; }
+.deal-seat-name { font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deal-seat-role { font-size: 10px; color: var(--gold); }
+.deal-seat-backs { flex: none; display: flex; gap: 3px; }
+.deal-back {
+  width: 9px; height: 13px; border-radius: 2px; border: 1px solid rgba(219,188,138,.45);
+  background: repeating-linear-gradient(45deg, #3a2a20, #3a2a20 2px, #241811 2px, #241811 4px);
+}
+.deal-seat-ack { flex: none; font-size: 10px; color: var(--muted); }
+.deal-panel .btn.big { width: 100%; padding: 13px; font-size: 15px; }
+.deal-panel #dealWaiting { margin: 10px 0 0; text-align: center; font-size: 12px; }
 
 @media (min-width: 720px) {
   .game { max-width: 760px; margin: 0 auto; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }

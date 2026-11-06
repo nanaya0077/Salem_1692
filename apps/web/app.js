@@ -1,4 +1,5 @@
-import { seatRoleView, trialLabel } from "./table-view.js";
+import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE } from "./table-view.js";
+import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -29,6 +30,9 @@ const S = {
   alibiPick: [],
   dawnKey: null,
   dawnTarget: null,
+  deal: null,
+  dealFlipped: new Set(),
+  dealKey: null,
   toastTimer: null,
   reconnectTimer: null,
   leaving: false,
@@ -37,16 +41,6 @@ const S = {
 };
 // 调试入口：浏览器控制台与联调脚本可直接读当前状态。
 globalThis.__salem = S;
-
-const PHASE_LABEL = {
-  lobby: "大厅",
-  dawn: "黎明",
-  action: "白天",
-  playing: "白天",
-  night: "夜晚",
-  gameOver: "结束",
-  over: "结束",
-};
 
 function loadSession() {
   try {
@@ -281,6 +275,7 @@ function handle(msg) {
     case "projection":
       S.projection = msg.projection;
       S.private = msg.private;
+      S.deal = msg.deal ?? null;
       if (msg.room) S.room = msg.room;
       render();
       break;
@@ -388,7 +383,7 @@ function trialChips(player, compact = false) {
   return trials.map((t) => {
     if (!t.revealed) return '<span class="trial-chip">?</span>';
     const kind = t.kind ?? "townspeople";
-    return '<span class="trial-chip revealed ' + (kind === "witch" ? "witch" : "") + '">' + esc(trialLabel(kind)) + "</span>";
+    return '<span class="trial-chip revealed ' + trialTone(kind) + '">' + esc(trialLabel(kind)) + "</span>";
   }).join("");
 }
 
@@ -401,6 +396,120 @@ function miniCards(player) {
 
 function selectableSeat(id) {
   return Boolean(S.pending) && !isSelf(id) && S.projection?.seats?.find((p) => p.id === id)?.alive;
+}
+
+/** 自己那排身份卡：横向卡片条；未揭示只给牌背，揭示后给牌面与和座位点阵同色的角标。 */
+function trialStrip(trials) {
+  const list = trials ?? [];
+  if (!list.length) return '<span class="muted">无身份卡</span>';
+  return list.map((t, i) => {
+    const revealed = t.revealed === true;
+    const kind = t.kind ?? "townspeople";
+    const face = card(trialFaceCardId(kind));
+    const image = revealed ? face.image : TRIAL_BACK_IMAGE;
+    const tone = trialTone(kind);
+    const label = revealed ? face.name : "身份卡（未揭示）";
+    return '<button type="button" class="trial-card' + (revealed ? " revealed" : "") + '" data-trial="' + i +
+      '" title="' + esc(label) + '" aria-label="' + esc(label) + '">' +
+      (image ? '<img src="/' + esc(image) + '" alt="" loading="lazy" draggable="false" />' : "") +
+      (revealed ? '<span class="trial-tone ' + tone + '"></span>' : "") +
+      "</button>";
+  }).join("");
+}
+
+/** 点自己的身份卡打开现有详情浮层：牌面按类型映射到女巫、警长、平民三张资源。 */
+function openTrialModal(index) {
+  const trial = S.projection?.self?.trials?.[index];
+  if (!trial) return;
+  openCardModal(trialFaceCardId(trial.kind ?? "townspeople"));
+}
+
+function dealSeatRow(seat) {
+  const role = dealSeatStatus(seat, roleCardName);
+  const backs = Array.from({ length: (seat.trials ?? []).length }, () => '<span class="deal-back"></span>').join("");
+  const acked = (S.deal?.acked ?? []).includes(seat.id);
+  return '<div class="deal-seat' + (seat.alive === false ? " dead" : "") + '">' +
+    avatarChip(seat.id, seat.name) +
+    '<div class="deal-seat-main"><div class="deal-seat-name">' + esc(seat.name) + "</div>" +
+    '<div class="deal-seat-role">' + esc(role) + "</div></div>" +
+    '<div class="deal-seat-backs" title="' + backs.length + ' 张身份卡">' + backs + "</div>" +
+    '<div class="deal-seat-ack">' + (acked ? "已确认" : "未确认") + "</div></div>";
+}
+
+/** 发牌确认屏：选角 → 逐张翻自己的牌 → 进入黎明；其他人只给牌背与张数。 */
+function renderDeal() {
+  const p = S.projection;
+  const my = p?.self;
+  if (!p || !my) return;
+  const me = p.seats.find((s) => s.id === S.seatId);
+  const key = String(S.deal?.deadline ?? "deal");
+  if (S.dealKey !== key) {
+    S.dealKey = key;
+    S.dealFlipped = new Set();
+  }
+
+  const roleChosen = Boolean(me?.roleChosen);
+  const chosenId = me?.role ?? my.role;
+  const options = me?.roleOptions ?? [];
+  const rolesBlock = $("dealRolesBlock");
+  if (roleChosen && chosenId && chosenId !== "none") {
+    const picked = card(chosenId);
+    rolesBlock.hidden = false;
+    $("dealRoles").className = "deal-roles single";
+    $("dealRolesTitle").textContent = "你的角色";
+    $("dealRoles").innerHTML = '<div class="deal-role chosen" aria-label="已选定 ' + esc(roleName(chosenId)) + '">' +
+      (picked.image ? '<img src="/' + esc(picked.image) + '" alt="" draggable="false" />' : "") +
+      '<span class="deal-role-name">' + esc(roleName(chosenId)) + "</span>" +
+      '<span class="deal-role-tag">已选定</span></div>';
+  } else if (options.length) {
+    rolesBlock.hidden = false;
+    $("dealRoles").className = "deal-roles";
+    $("dealRolesTitle").textContent = "选择你的角色（选定后不可更改）";
+    $("dealRoles").innerHTML = options.map((id) => {
+      const option = card(id);
+      return '<button type="button" class="deal-role" data-role="' + esc(id) + '">' +
+        (option.image ? '<img src="/' + esc(option.image) + '" alt="" draggable="false" />' : "") +
+        '<span class="deal-role-name">' + esc(roleName(id)) + "</span></button>";
+    }).join("");
+  } else {
+    rolesBlock.hidden = true;
+    $("dealRoles").innerHTML = "";
+  }
+
+  const progress = dealProgress(my.trials, S.dealFlipped);
+  $("dealCount").textContent = dealCountText(progress);
+  $("dealCards").innerHTML = (my.trials ?? []).map((t, i) => {
+    const seen = t.revealed === true || S.dealFlipped.has(i);
+    const face = card(trialFaceCardId(t.kind ?? "townspeople"));
+    const image = seen ? face.image : TRIAL_BACK_IMAGE;
+    const label = seen ? face.name : "身份卡（未翻开）";
+    return '<button type="button" class="deal-card' + (seen ? " flipped" : "") + '" data-deal-card="' + i +
+      '" aria-pressed="' + (seen ? "true" : "false") + '" aria-label="' + esc(label) + '">' +
+      (image ? '<img src="/' + esc(image) + '" alt="" draggable="false" />' : "") +
+      '<span class="deal-card-cap">' + (seen ? esc(face.name) : "点开") + "</span></button>";
+  }).join("");
+
+  $("dealSeats").innerHTML = p.seats.filter((s) => s.id !== S.seatId).map(dealSeatRow).join("");
+
+  const acknowledged = Boolean(S.private?.acknowledged);
+  const ready = canEnterDawn({
+    seen: progress.seen,
+    total: progress.total,
+    roleChosen,
+    acknowledged,
+  });
+  const ackBtn = $("dealAckBtn");
+  ackBtn.disabled = acknowledged || !ready;
+  ackBtn.textContent = acknowledged ? "已确认" : "进入黎明";
+  $("dealWaiting").hidden = !acknowledged;
+  $("dealWaiting").textContent = acknowledged
+    ? "已确认，" + ackSummary(S.deal, p.seats.length) + "，等待其他玩家…"
+    : "";
+  $("dealPrompt").textContent = !roleChosen
+    ? "先在下面选一个角色，选定后不可更改。"
+    : progress.allSeen
+      ? "身份卡都看过了，进入黎明。"
+      : "逐张点开你的身份卡。";
 }
 
 function renderGame() {
@@ -421,12 +530,13 @@ function renderGame() {
     if (selectableSeat(player.id)) classes.push("selectable");
     if (p.currentPlayerId === player.id) classes.push("me");
     const role = seatRoleView(player, roleCardName);
+    const roleText = p.phase === "deal" ? dealSeatStatus(player, roleCardName) : role.compact;
     return '<button class="' + classes.join(" ") + '" data-seat="' + player.id + '">' +
       avatarChip(player.id, player.name) +
       '<div class="seat-name">' + esc(player.name) + "</div>" +
-      '<div class="seat-role" title="' + esc(role.full) + '">' + esc(role.compact) + "</div>" +
+      '<div class="seat-role" title="' + esc(role.full) + '">' + esc(roleText) + "</div>" +
       '<div class="seat-meta"><span>手牌 <b>' + player.handCount + "</b></span><span>指控 <b>" + player.accusations + "</b></span></div>" +
-      '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? (t.kind === "witch" ? "witch" : t.kind === "constable" ? "constable" : "on") : "") + '"></span>').join("") + "</div>" +
+      '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? trialTone(t.kind) : "") + '"></span>').join("") + "</div>" +
       (miniCards(player) ? '<div class="mini-cards">' + miniCards(player) + "</div>" : "") +
       (player.everWitch === true ? '<div class="seat-sub" style="color:#d4574b">曾为女巫</div>' : "") +
       "</button>";
@@ -436,7 +546,7 @@ function renderGame() {
     avatarChip(S.seatId, seatName(S.seatId)) +
     '<div class="self-main"><div class="self-name">' + esc(seatName(S.seatId)) + " · 你</div>" +
     '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div></div>" +
-    '<div class="self-trials">' + trialChips({ trials: my.trials }) + "</div>";
+    '<div class="self-trials trial-strip">' + trialStrip(my.trials) + "</div>";
 
   $("hand").innerHTML = (my.hand ?? []).map((id) => {
     const c = card(id);
@@ -448,16 +558,17 @@ function renderGame() {
 
   $("deckCount").textContent = p.deckCount;
   $("discardCount").textContent = p.discardCount;
-  $("phaseText").textContent = PHASE_LABEL[p.phase] ?? p.phase;
+  $("phaseText").textContent = phaseLabel(p.phase);
   const turnName = p.currentPlayerId === S.seatId ? "你" : seatName(p.currentPlayerId);
-  S.turnLabel = p.phase === "action" ? "轮到 " + turnName : (PHASE_LABEL[p.phase] ?? p.phase);
+  S.turnLabel = p.phase === "action" ? "轮到 " + turnName : phaseLabel(p.phase);
   $("turnBadge").textContent = S.turnLabel;
 
   let hint = "";
   if (p.phase === "action") {
     if (myTurn()) hint = p.actionTaken ? "本回合已行动，结束回合交给下一位。" : "打出一张牌，或抽两张并结束回合。";
     else hint = "等待 " + turnName + " 行动…";
-  } else if (p.phase === "night") hint = "夜晚结算中…";
+  } else if (p.phase === "deal") hint = "发牌确认：看完自己的身份卡再进入黎明。";
+  else if (p.phase === "night") hint = "夜晚结算中…";
   else if (p.phase === "dawn") hint = "黎明：女巫正在放置黑猫…";
   else if (p.phase === "gameOver") hint = "对局结束";
   $("centerHint").textContent = hint;
@@ -668,10 +779,12 @@ function formatEvent(e) {
 function renderOverlays() {
   const p = S.projection;
   const phase = p?.phase;
+  $("dealOverlay").hidden = phase !== "deal";
   $("nightOverlay").hidden = phase !== "night";
   $("dawnOverlay").hidden = phase !== "dawn";
   $("overOverlay").hidden = phase !== "gameOver";
-  $("chatBar").hidden = !(S.room && S.room.phase !== "lobby" && phase !== "gameOver");
+  $("chatBar").hidden = !(S.room && S.room.phase !== "lobby" && phase !== "gameOver" && phase !== "deal");
+  if (phase === "deal") renderDeal();
   if (phase === "night") renderNight();
   if (phase === "dawn") renderDawn();
   if (phase === "gameOver") renderOver();
@@ -763,6 +876,7 @@ function updateTimers() {
   const myTurnNow = S.projection?.phase === "action" && S.projection.currentPlayerId === S.seatId;
   const actionLeft = myTurnNow && p?.turnDeadline ? seconds(p.turnDeadline) : null;
   $("turnBadge").textContent = S.turnLabel + (actionLeft !== null ? " · " + actionLeft + "s" : "");
+  if (S.deal?.deadline) $("dealTimer").textContent = seconds(S.deal.deadline) + "s";
   if (p?.dawn?.deadline) $("dawnTimer").textContent = seconds(p.dawn.deadline) + "s";
   if (p?.night?.deadline) $("nightTimer").textContent = seconds(p.night.deadline) + "s";
 }
@@ -884,6 +998,9 @@ function leaveToLanding() {
   S.pending = null;
   S.nightKey = null;
   S.dawnKey = null;
+  S.deal = null;
+  S.dealFlipped = new Set();
+  S.dealKey = null;
   closeModal();
   render();
   setTimeout(() => { S.leaving = false; }, 300);
@@ -947,6 +1064,26 @@ function bind() {
     renderLog();
   });
   $("closeLog").addEventListener("click", () => { $("logDrawer").hidden = true; });
+  $("dealCards").addEventListener("click", (event) => {
+    const el = event.target.closest("[data-deal-card]");
+    if (!el) return;
+    S.dealFlipped.add(Number(el.dataset.dealCard));
+    renderDeal();
+  });
+  $("dealRoles").addEventListener("click", (event) => {
+    const el = event.target.closest("[data-role]");
+    if (!el) return;
+    act({ kind: "chooseRole", roleId: el.dataset.role });
+  });
+  $("dealAckBtn").addEventListener("click", () => {
+    if ($("dealAckBtn").disabled) return;
+    act({ kind: "dealAck" });
+  });
+  $("selfPanel").addEventListener("click", (event) => {
+    const el = event.target.closest("[data-trial]");
+    if (!el) return;
+    openTrialModal(Number(el.dataset.trial));
+  });
   $("opponents").addEventListener("click", (event) => {
     const button = event.target.closest("[data-seat]");
     if (button) onSeatClick(Number(button.dataset.seat));

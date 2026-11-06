@@ -148,6 +148,26 @@
         </div>
       </div>
 
+      <div id="dealOverlay" class="overlay deal" hidden>
+        <div class="overlay-card deal-panel">
+          <div class="eyebrow">DEAL</div>
+          <h2>发牌确认</h2>
+          <p id="dealPrompt" class="overlay-lead">先选好角色，再逐张点开自己的身份卡；全部看完才能进入黎明。</p>
+          <div id="dealTimer" class="timer"></div>
+          <div id="dealRolesBlock" class="overlay-block" hidden>
+            <h3 id="dealRolesTitle">选择你的角色</h3>
+            <div id="dealRoles" class="deal-roles"></div>
+          </div>
+          <div class="overlay-block">
+            <h3>你的身份卡 <span id="dealCount" class="deal-count">已看 0 / 0</span></h3>
+            <div id="dealCards" class="deal-cards" aria-label="你的身份卡"></div>
+          </div>
+          <div id="dealSeats" class="deal-seats"></div>
+          <button id="dealAckBtn" class="btn primary big" disabled>进入黎明</button>
+          <p id="dealWaiting" class="muted" hidden>已确认，等待其他玩家…</p>
+        </div>
+      </div>
+
       <div id="overOverlay" class="overlay over" hidden>
         <div class="overlay-card">
           <div class="eyebrow">GAME OVER</div>

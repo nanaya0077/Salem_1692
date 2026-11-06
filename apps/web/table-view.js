@@ -45,3 +45,30 @@ export function seatRoleView(seat, resolveName) {
   const full = typeof resolved === "string" && resolved.trim() ? resolved.trim() : String(role);
   return { full, compact: compactRoleName(full) };
 }
+
+
+/** 身份卡类型 → 卡牌资源 id；只有女巫 / 警长 / 平民三种牌面。 */
+export const TRIAL_FACE_CARD = Object.freeze({
+  witch: "witch",
+  constable: "constable",
+  townspeople: "not-a-witch",
+});
+
+/** 身份卡牌背；资源目录里现成的 back-trial 图，不进 cards.zh.json。 */
+export const TRIAL_BACK_IMAGE = "assets/cards/zh/back-trial.png";
+
+/** 身份卡类型的牌面资源 id；未知类型返回 null，由调用方退回牌背。 */
+export function trialFaceCardId(kind) {
+  return TRIAL_FACE_CARD[kind] ?? null;
+}
+
+/**
+ * 身份卡类型 → 座位点阵的角标颜色类名（witch 血红 / constable 蓝 / on 金）。
+ *
+ * 座位点阵与自家身份卡卡片条共用这一份映射：两处颜色必须一致，谁也别各写一份。
+ */
+export function trialTone(kind) {
+  if (kind === "witch") return "witch";
+  if (kind === "constable") return "constable";
+  return "on";
+}
