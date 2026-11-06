@@ -7,6 +7,9 @@ import {
   errorOutcome,
   rejoinPlan,
 } from "./reconnect.js";
+import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE } from "./table-view.js";
+import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
+import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText } from "./reveal-view.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -23,6 +26,8 @@ const S = {
   pending: null,
   modalCard: null,
   chats: [],
+  avatars: new Map(),
+  avatarUrls: new Map(),
   nightKey: null,
   turnLabel: "",
   nightChoice: { targetId: null, hammerTargetId: null, confess: false, useWilliam: false },
@@ -35,6 +40,10 @@ const S = {
   alibiPick: [],
   dawnKey: null,
   dawnTarget: null,
+  deal: null,
+  revealWait: null,
+  dealFlipped: new Set(),
+  dealKey: null,
   toastTimer: null,
   reconnectTimer: null,
   leaving: false,
@@ -45,18 +54,6 @@ const S = {
 };
 // 调试入口：浏览器控制台与联调脚本可直接读当前状态。
 globalThis.__salem = S;
-
-const PHASE_LABEL = {
-  lobby: "大厅",
-  dawn: "黎明",
-  action: "白天",
-  playing: "白天",
-  night: "夜晚",
-  gameOver: "结束",
-  over: "结束",
-};
-
-const TRIAL_LABEL = { witch: "女巫", constable: "治安官", townspeople: "平民" };
 
 function loadSession() {
   try {
@@ -88,9 +85,14 @@ function card(id) {
   return S.cards.get(id) ?? { id, name: id, color: "none", typeLabel: "", points: 0, text: "", image: "" };
 }
 
+/** 角色卡名：只认卡牌资源里的名字，没加载或没有角色就返回 null，交给调用方兜底。 */
+function roleCardName(id) {
+  if (!id || id === "none") return null;
+  return S.cards.get(id)?.name ?? null;
+}
+
 function roleName(id) {
-  if (!id || id === "none") return "无角色";
-  return card(id).name;
+  return roleCardName(id) ?? (id && id !== "none" ? id : "无角色");
 }
 
 function seatName(id) {
@@ -98,6 +100,91 @@ function seatName(id) {
   if (fromRoom) return fromRoom.name;
   const fromProjection = S.projection?.seats?.find((s) => s.id === id);
   return fromProjection?.name ?? "玩家 " + id;
+}
+
+/** 没有 Intl.Segmenter 的旧浏览器退回按码位切；有就按字素簇切。 */
+const graphemeSegmenter = (() => {
+  try {
+    return typeof Intl?.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+  } catch {
+    return null;
+  }
+})();
+
+/**
+ * 没设头像时显示的首字：取第一个字素簇，国旗、家庭 emoji、带肤色的 emoji 都整颗显示。
+ * 旧浏览器拿不到 Intl.Segmenter 时按码位回落，至少不会切出半个码元。
+ */
+function initialOf(name) {
+  const text = String(name ?? "").trim();
+  if (!text) return "？";
+  if (graphemeSegmenter) {
+    const first = graphemeSegmenter.segment(text)[Symbol.iterator]().next();
+    if (!first.done) return first.value.segment;
+  }
+  return Array.from(text)[0] ?? "？";
+}
+
+/** data URL → Blob；解析不出来返回 null，由调用方退回 data URL 直出。 */
+function dataUrlToBlob(dataUrl) {
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) return null;
+  const mime = dataUrl.slice(5, comma).split(";")[0] || "application/octet-stream";
+  const binary = atob(dataUrl.slice(comma + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+/**
+ * 头像的可用地址。头像表存 data URL，若每次全量重绘都把它写进 innerHTML，
+ * 12 人房每同步一次都要重新解析几百 KB 字符串；这里按座位缓存成 blob: 地址，
+ * 重绘只写一小段 URL。拿不到 createObjectURL 时原样用 data URL，行为不变。
+ */
+function avatarSrc(seatId) {
+  const dataUrl = S.avatars.get(seatId);
+  if (!dataUrl) return null;
+  const cached = S.avatarUrls.get(seatId);
+  if (cached && cached.dataUrl === dataUrl) return cached.src;
+  let src = dataUrl;
+  try {
+    const blob = dataUrlToBlob(dataUrl);
+    if (blob && typeof URL.createObjectURL === "function") src = URL.createObjectURL(blob);
+  } catch { /* 退回 data URL */ }
+  releaseAvatar(seatId);
+  S.avatarUrls.set(seatId, { dataUrl, src });
+  return src;
+}
+
+/** 释放某个座位的 blob 地址（换了头像或移除头像时）。 */
+function releaseAvatar(seatId) {
+  const cached = S.avatarUrls.get(seatId);
+  if (!cached) return;
+  S.avatarUrls.delete(seatId);
+  if (cached.src.startsWith("blob:")) URL.revokeObjectURL(cached.src);
+}
+
+/** 全量替换头像表（welcome）：旧 blob 地址全部释放，重绘时按需重建。 */
+function resetAvatars(avatars) {
+  for (const seatId of [...S.avatarUrls.keys()]) releaseAvatar(seatId);
+  S.avatars = new Map(Object.entries(avatars ?? {}).map(([id, url]) => [Number(id), url]));
+}
+
+/** 单座位头像写入（avatar 消息）；dataUrl 为空表示移除。 */
+function setAvatar(seatId, dataUrl) {
+  releaseAvatar(seatId);
+  if (dataUrl) S.avatars.set(seatId, dataUrl);
+  else S.avatars.delete(seatId);
+}
+
+/**
+ * 所有显示玩家的位置共用这一个头像牌：有头像放图，没有回落昵称首字。
+ * 尺寸仍由各处的 .avatar 规则决定，这里只管内容。
+ */
+function avatarChip(seatId, name) {
+  const src = avatarSrc(seatId);
+  if (!src) return '<span class="avatar">' + esc(initialOf(name)) + "</span>";
+  return '<span class="avatar has-image"><img src="' + esc(src) + '" alt="" /></span>';
 }
 
 function isSelf(id) {
@@ -110,6 +197,11 @@ function selfSeat() {
 
 function isHost() {
   return S.room?.hostSeat === S.seatId;
+}
+
+/** 挂起揭示期谁都动不了：选择者要选位置，其他人等；规则层同样会拒（reveal-pending）。 */
+function revealLocked() {
+  return actionsLocked({ pendingReveal: S.projection?.pendingReveal, revealWait: S.revealWait });
 }
 
 function myTurn() {
@@ -196,12 +288,31 @@ function act(action) {
   send({ type: "action", commandId: commandId(), action });
 }
 
+// 座位表结构变了（开局重编号、座位被移出）：服务端把「我的座位号 + 整张头像」挂在同一条消息上发下来。
+// 客户端按座位号取人、取头像，所以这两样必须一起换，不能只改一样。
+function adoptIdentity(seatId, avatars) {
+  S.seatId = seatId;
+  resetAvatars(avatars);
+}
+
+function adoptResync(resync) {
+  adoptIdentity(resync.seatId, resync.avatars);
+  const session = loadSession();
+  if (session) saveSession({ ...session, seatId: resync.seatId });
+}
+
 function handle(msg) {
+  if (msg.resync) adoptResync(msg.resync);
   switch (msg.type) {
     case "welcome":
-      S.seatId = msg.seatId;
+      adoptIdentity(msg.seatId, msg.avatars);
       S.rejoining = false;
       saveSession({ code: msg.code, token: msg.token, seatId: msg.seatId });
+      render();
+      break;
+    case "avatar":
+      setAvatar(Number(msg.seatId), msg.dataUrl);
+      render();
       break;
     case "room":
       S.room = msg.room;
@@ -210,6 +321,9 @@ function handle(msg) {
     case "projection":
       S.projection = msg.projection;
       S.private = msg.private;
+      S.deal = msg.deal ?? null;
+      // 挂起揭示的公开信号在消息顶层：选择者另有 projection.pendingReveal，其他人只有这一条。
+      S.revealWait = msg.revealWait ?? null;
       if (msg.room) S.room = msg.room;
       render();
       break;
@@ -281,7 +395,7 @@ function renderLobby() {
       ? '<button class="seat-kick" data-kick="' + seat.id + '" title="移除机器人">×</button>'
       : "";
     return '<div class="lobby-seat ' + (seat.ready ? "ready " : "") + (seat.connected ? "" : "offline") + '">' +
-      '<div class="avatar">' + esc(seat.name.slice(0, 1)) + "</div>" +
+      avatarChip(seat.id, seat.name) +
       '<div style="min-width:0"><div class="seat-name">' + esc(seat.name) + "</div>" +
       '<div class="seat-sub">' + (tags.join(" · ") || "玩家") + (seat.connected ? "" : " · 离线") + (seat.ready ? " · 已准备" : " · 未准备") + "</div></div>" + kick + "</div>";
   }).join("");
@@ -317,7 +431,7 @@ function trialChips(player, compact = false) {
   return trials.map((t) => {
     if (!t.revealed) return '<span class="trial-chip">?</span>';
     const kind = t.kind ?? "townspeople";
-    return '<span class="trial-chip revealed ' + (kind === "witch" ? "witch" : "") + '">' + (TRIAL_LABEL[kind] ?? kind) + "</span>";
+    return '<span class="trial-chip revealed ' + trialTone(kind) + '">' + esc(trialLabel(kind)) + "</span>";
   }).join("");
 }
 
@@ -332,6 +446,120 @@ function selectableSeat(id) {
   return Boolean(S.pending) && !isSelf(id) && S.projection?.seats?.find((p) => p.id === id)?.alive;
 }
 
+/** 自己那排身份卡：横向卡片条；未揭示只给牌背，揭示后给牌面与和座位点阵同色的角标。 */
+function trialStrip(trials) {
+  const list = trials ?? [];
+  if (!list.length) return '<span class="muted">无身份卡</span>';
+  return list.map((t, i) => {
+    const revealed = t.revealed === true;
+    const kind = t.kind ?? "townspeople";
+    const face = card(trialFaceCardId(kind));
+    const image = revealed ? face.image : TRIAL_BACK_IMAGE;
+    const tone = trialTone(kind);
+    const label = revealed ? face.name : "身份卡（未揭示）";
+    return '<button type="button" class="trial-card' + (revealed ? " revealed" : "") + '" data-trial="' + i +
+      '" title="' + esc(label) + '" aria-label="' + esc(label) + '">' +
+      (image ? '<img src="/' + esc(image) + '" alt="" loading="lazy" draggable="false" />' : "") +
+      (revealed ? '<span class="trial-tone ' + tone + '"></span>' : "") +
+      "</button>";
+  }).join("");
+}
+
+/** 点自己的身份卡打开现有详情浮层：牌面按类型映射到女巫、警长、平民三张资源。 */
+function openTrialModal(index) {
+  const trial = S.projection?.self?.trials?.[index];
+  if (!trial) return;
+  openCardModal(trialFaceCardId(trial.kind ?? "townspeople"));
+}
+
+function dealSeatRow(seat) {
+  const role = dealSeatStatus(seat, roleCardName);
+  const backs = Array.from({ length: (seat.trials ?? []).length }, () => '<span class="deal-back"></span>').join("");
+  const acked = (S.deal?.acked ?? []).includes(seat.id);
+  return '<div class="deal-seat' + (seat.alive === false ? " dead" : "") + '">' +
+    avatarChip(seat.id, seat.name) +
+    '<div class="deal-seat-main"><div class="deal-seat-name">' + esc(seat.name) + "</div>" +
+    '<div class="deal-seat-role">' + esc(role) + "</div></div>" +
+    '<div class="deal-seat-backs" title="' + backs.length + ' 张身份卡">' + backs + "</div>" +
+    '<div class="deal-seat-ack">' + (acked ? "已确认" : "未确认") + "</div></div>";
+}
+
+/** 发牌确认屏：选角 → 逐张翻自己的牌 → 进入黎明；其他人只给牌背与张数。 */
+function renderDeal() {
+  const p = S.projection;
+  const my = p?.self;
+  if (!p || !my) return;
+  const me = p.seats.find((s) => s.id === S.seatId);
+  const key = String(S.deal?.deadline ?? "deal");
+  if (S.dealKey !== key) {
+    S.dealKey = key;
+    S.dealFlipped = new Set();
+  }
+
+  const roleChosen = Boolean(me?.roleChosen);
+  const chosenId = me?.role ?? my.role;
+  const options = me?.roleOptions ?? [];
+  const rolesBlock = $("dealRolesBlock");
+  if (roleChosen && chosenId && chosenId !== "none") {
+    const picked = card(chosenId);
+    rolesBlock.hidden = false;
+    $("dealRoles").className = "deal-roles single";
+    $("dealRolesTitle").textContent = "你的角色";
+    $("dealRoles").innerHTML = '<div class="deal-role chosen" aria-label="已选定 ' + esc(roleName(chosenId)) + '">' +
+      (picked.image ? '<img src="/' + esc(picked.image) + '" alt="" draggable="false" />' : "") +
+      '<span class="deal-role-name">' + esc(roleName(chosenId)) + "</span>" +
+      '<span class="deal-role-tag">已选定</span></div>';
+  } else if (options.length) {
+    rolesBlock.hidden = false;
+    $("dealRoles").className = "deal-roles";
+    $("dealRolesTitle").textContent = "选择你的角色（选定后不可更改）";
+    $("dealRoles").innerHTML = options.map((id) => {
+      const option = card(id);
+      return '<button type="button" class="deal-role" data-role="' + esc(id) + '">' +
+        (option.image ? '<img src="/' + esc(option.image) + '" alt="" draggable="false" />' : "") +
+        '<span class="deal-role-name">' + esc(roleName(id)) + "</span></button>";
+    }).join("");
+  } else {
+    rolesBlock.hidden = true;
+    $("dealRoles").innerHTML = "";
+  }
+
+  const progress = dealProgress(my.trials, S.dealFlipped);
+  $("dealCount").textContent = dealCountText(progress);
+  $("dealCards").innerHTML = (my.trials ?? []).map((t, i) => {
+    const seen = t.revealed === true || S.dealFlipped.has(i);
+    const face = card(trialFaceCardId(t.kind ?? "townspeople"));
+    const image = seen ? face.image : TRIAL_BACK_IMAGE;
+    const label = seen ? face.name : "身份卡（未翻开）";
+    return '<button type="button" class="deal-card' + (seen ? " flipped" : "") + '" data-deal-card="' + i +
+      '" aria-pressed="' + (seen ? "true" : "false") + '" aria-label="' + esc(label) + '">' +
+      (image ? '<img src="/' + esc(image) + '" alt="" draggable="false" />' : "") +
+      '<span class="deal-card-cap">' + (seen ? esc(face.name) : "点开") + "</span></button>";
+  }).join("");
+
+  $("dealSeats").innerHTML = p.seats.filter((s) => s.id !== S.seatId).map(dealSeatRow).join("");
+
+  const acknowledged = Boolean(S.private?.acknowledged);
+  const ready = canEnterDawn({
+    seen: progress.seen,
+    total: progress.total,
+    roleChosen,
+    acknowledged,
+  });
+  const ackBtn = $("dealAckBtn");
+  ackBtn.disabled = acknowledged || !ready;
+  ackBtn.textContent = acknowledged ? "已确认" : "进入黎明";
+  $("dealWaiting").hidden = !acknowledged;
+  $("dealWaiting").textContent = acknowledged
+    ? "已确认，" + ackSummary(S.deal, p.seats.length) + "，等待其他玩家…"
+    : "";
+  $("dealPrompt").textContent = !roleChosen
+    ? "先在下面选一个角色，选定后不可更改。"
+    : progress.allSeen
+      ? "身份卡都看过了，进入黎明。"
+      : "逐张点开你的身份卡。";
+}
+
 function renderGame() {
   const p = S.projection;
   if (!p) {
@@ -343,31 +571,35 @@ function renderGame() {
     return;
   }
   const my = p.self;
+  const locked = revealLocked();
   const opponents = p.seats.filter((s) => s.id !== S.seatId);
   $("opponents").innerHTML = opponents.map((player) => {
     const classes = ["seat-card"];
     if (player.alive === false) classes.push("dead");
     if (selectableSeat(player.id)) classes.push("selectable");
     if (p.currentPlayerId === player.id) classes.push("me");
+    const role = seatRoleView(player, roleCardName);
+    const roleText = p.phase === "deal" ? dealSeatStatus(player, roleCardName) : role.compact;
     return '<button class="' + classes.join(" ") + '" data-seat="' + player.id + '">' +
-      '<div class="avatar">' + esc(player.name.slice(0, 1)) + "</div>" +
+      avatarChip(player.id, player.name) +
       '<div class="seat-name">' + esc(player.name) + "</div>" +
+      '<div class="seat-role" title="' + esc(role.full) + '">' + esc(roleText) + "</div>" +
       '<div class="seat-meta"><span>手牌 <b>' + player.handCount + "</b></span><span>指控 <b>" + player.accusations + "</b></span></div>" +
-      '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? (t.kind === "witch" ? "witch" : t.kind === "constable" ? "constable" : "on") : "") + '"></span>').join("") + "</div>" +
+      '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? trialTone(t.kind) : "") + '"></span>').join("") + "</div>" +
       (miniCards(player) ? '<div class="mini-cards">' + miniCards(player) + "</div>" : "") +
       (player.everWitch === true ? '<div class="seat-sub" style="color:#d4574b">曾为女巫</div>' : "") +
       "</button>";
   }).join("");
 
   $("selfPanel").innerHTML =
-    '<div class="avatar">' + esc(seatName(S.seatId).slice(0, 1)) + "</div>" +
+    avatarChip(S.seatId, seatName(S.seatId)) +
     '<div class="self-main"><div class="self-name">' + esc(seatName(S.seatId)) + " · 你</div>" +
     '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div></div>" +
-    '<div class="self-trials">' + trialChips({ trials: my.trials }) + "</div>";
+    '<div class="self-trials trial-strip">' + trialStrip(my.trials) + "</div>";
 
   $("hand").innerHTML = (my.hand ?? []).map((id) => {
     const c = card(id);
-    return '<button class="card ' + c.color + '" data-card="' + esc(id) + '" title="' + esc(c.name) + '">' +
+    return '<button class="card ' + c.color + '"' + (locked ? " disabled" : "") + ' data-card="' + esc(id) + '" title="' + esc(c.name) + '">' +
       (c.image ? '<img src="/' + esc(c.image) + '" alt="" loading="lazy" />' : "") +
       (c.points ? '<span class="pts">' + c.points + "</span>" : "") +
       '<span class="label">' + esc(c.name) + "</span></button>";
@@ -375,21 +607,26 @@ function renderGame() {
 
   $("deckCount").textContent = p.deckCount;
   $("discardCount").textContent = p.discardCount;
-  $("phaseText").textContent = PHASE_LABEL[p.phase] ?? p.phase;
+  $("phaseText").textContent = phaseLabel(p.phase);
   const turnName = p.currentPlayerId === S.seatId ? "你" : seatName(p.currentPlayerId);
-  S.turnLabel = p.phase === "action" ? "轮到 " + turnName : (PHASE_LABEL[p.phase] ?? p.phase);
+  S.turnLabel = p.phase === "action" ? "轮到 " + turnName : phaseLabel(p.phase);
   $("turnBadge").textContent = S.turnLabel;
 
   let hint = "";
   if (p.phase === "action") {
     if (myTurn()) hint = p.actionTaken ? "本回合已行动，结束回合交给下一位。" : "打出一张牌，或抽两张并结束回合。";
     else hint = "等待 " + turnName + " 行动…";
-  } else if (p.phase === "night") hint = "夜晚结算中…";
+  } else if (p.phase === "deal") hint = "发牌确认：看完自己的身份卡再进入黎明。";
+  else if (p.phase === "night") hint = "夜晚结算中…";
   else if (p.phase === "dawn") hint = "黎明：女巫正在放置黑猫…";
   else if (p.phase === "gameOver") hint = "对局结束";
   $("centerHint").textContent = hint;
 
-  if (p.phase === "action" && myTurn()) {
+  if (p.phase === "action" && locked) {
+    // 挂起揭示期抽牌 / 出牌 / 结束回合都会被规则层拒（reveal-pending），按钮先禁掉。
+    $("actionBar").innerHTML = '<button class="btn primary" data-act="end" disabled>结束回合</button>' +
+      '<button class="btn gold" data-act="draw" disabled>抽 2 张并结束</button>';
+  } else if (p.phase === "action" && myTurn()) {
     if (p.actionTaken) {
       $("actionBar").innerHTML = '<button class="btn primary" data-act="end">结束回合</button>';
     } else {
@@ -407,6 +644,7 @@ function renderGame() {
     $("actionBar").innerHTML = "";
   }
 
+  renderRevealBar();
   renderTargetBanner();
   renderLog();
 }
@@ -528,6 +766,49 @@ function renderPower() {
   confirm.disabled = order.length < 2;
 }
 
+/**
+ * 挂起揭示的条形区：选择者在这里点位置（丹福斯对普通玩家第 6 点还能放弃），
+ * 其他人只看到「等待 X 选择」。位置条按目标面前的身份卡张数渲染，已揭示的位置直接禁用；
+ * 揭示一落定服务端就不再发挂起态，整条自己消失。
+ */
+function renderRevealBar() {
+  const bar = $("revealBar");
+  const view = S.projection?.pendingReveal ?? null;
+  if (view) {
+    const target = S.projection.seats.find((seat) => seat.id === view.targetId);
+    const trials = target?.trials ?? [];
+    const slots = slotView(view.slots).map((slot) => {
+      const trial = trials[slot.index];
+      const face = slot.revealed ? card(trialFaceCardId(trial?.kind ?? "townspeople")) : null;
+      const image = face && face.image ? face.image : TRIAL_BACK_IMAGE;
+      const caption = slot.revealed ? (face?.name ?? "身份卡") : "#" + (slot.index + 1);
+      return '<button type="button" class="reveal-slot' + (slot.revealed ? " revealed " + trialTone(trial?.kind) : "") +
+        '"' + (slot.disabled ? " disabled" : "") + ' data-reveal-index="' + slot.index +
+        '" aria-label="' + esc(caption) + '">' +
+        (image ? '<img src="/' + esc(image) + '" alt="" loading="lazy" draggable="false" />' : "") +
+        '<span class="reveal-slot-cap">' + esc(caption) + "</span></button>";
+    }).join("");
+    bar.className = "reveal-bar choosing";
+    bar.innerHTML = '<div class="reveal-head"><span class="reveal-title">选择揭示位置：' +
+      esc(seatName(view.targetId)) + " 面前的身份卡</span>" +
+      (canDecline(view) ? '<button type="button" class="btn tiny ghost" data-reveal-decline>放弃</button>' : "") +
+      "</div>" +
+      '<div class="reveal-slots">' + slots + "</div>";
+    bar.hidden = false;
+    return;
+  }
+  const waiting = revealWaitText(S.revealWait, seatName);
+  if (!waiting) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    return;
+  }
+  bar.className = "reveal-bar waiting";
+  bar.innerHTML = '<div class="reveal-head"><span class="reveal-title">' + esc(waiting) + "</span></div>" +
+    '<p class="reveal-hint">选好位置后目标那张会立刻翻开；这期间抽牌、出牌与结束回合都不可用。</p>';
+  bar.hidden = false;
+}
+
 function renderTargetBanner() {
   const banner = $("targetBanner");
   if (!S.pending) {
@@ -555,6 +836,7 @@ function formatEvent(e) {
   const cn = (id) => '<span class="gold">「' + esc(card(id).name) + "」</span>";
   switch (e.type) {
     case "gameStarted": return "对局开始，先手 " + n(e.firstPlayerId) + "。";
+    case "roleChosen": return n(e.playerId) + " 选了 " + esc(roleName(e.role)) + "。";
     case "blackCatPlaced": return "黑猫被放到了 " + n(e.targetId) + " 面前。";
     case "turnStarted": return "轮到 " + n(e.playerId) + "。";
     case "turnEnded": return n(e.playerId) + " 结束回合。";
@@ -571,7 +853,7 @@ function formatEvent(e) {
     case "cardNullified": return cn(e.cardId) + " 被莎拉·古德免疫，立刻丢弃。";
     case "accusationAdded": return n(e.targetId) + " 面前 +" + e.points + " 点（" + esc(card(e.cardId).name) + "），共 " + e.total + " 点。";
     case "accusationsDiscarded": return n(e.playerId) + " 弃掉 " + e.count + " 张指控。";
-    case "trialRevealed": return n(e.playerId) + " 翻开一张身份卡：" + (TRIAL_LABEL[e.kind] ?? e.kind) + "（" + esc(e.cause) + "）。";
+    case "trialRevealed": return esc(revealLogText(e, { nameOf: seatName, label: trialLabel }));
     case "playerDied": return '<span class="red">' + n(e.playerId) + " 死亡（" + esc(e.cause) + "）。</span>";
     case "handDiscarded": return n(e.playerId) + " 弃掉 " + e.count + " 张手牌。";
     case "handTransferred": return n(e.fromId) + " 的 " + e.count + " 张手牌交给 " + n(e.toId) + "。";
@@ -594,10 +876,12 @@ function formatEvent(e) {
 function renderOverlays() {
   const p = S.projection;
   const phase = p?.phase;
+  $("dealOverlay").hidden = phase !== "deal";
   $("nightOverlay").hidden = phase !== "night";
   $("dawnOverlay").hidden = phase !== "dawn";
   $("overOverlay").hidden = phase !== "gameOver";
   $("chatBar").hidden = !(S.room && S.room.phase !== "lobby" && phase !== "gameOver");
+  if (phase === "deal") renderDeal();
   if (phase === "night") renderNight();
   if (phase === "dawn") renderDawn();
   if (phase === "gameOver") renderOver();
@@ -619,7 +903,7 @@ function renderNight() {
   }
   const roles = [];
   if (info.isWitch) roles.push("女巫：选择夜杀目标");
-  if (info.isConstable) roles.push("治安官：可用木槌赦免一人");
+  if (info.isConstable) roles.push("警长：可用木槌赦免一人");
   if (!roles.length) roles.push("你不是夜晚行动者");
   $("nightPrompt").textContent = roles.join("；") + "。";
 
@@ -627,7 +911,7 @@ function renderNight() {
   if (info.isWitch) {
     $("nightTargets").innerHTML = (S.projection?.seats ?? []).filter((s) => s.alive).map((s) =>
       '<button class="pick ' + (S.nightChoice.targetId === s.id ? "selected" : "") + '" data-night-target="' + s.id + '">' +
-      '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + "</span></button>").join("");
+      avatarChip(s.id, s.name) + "<span>" + esc(s.name) + "</span></button>").join("");
   }
   $("nightHammerBlock").hidden = !info.isConstable;
   if (info.isConstable) {
@@ -635,7 +919,7 @@ function renderNight() {
     $("nightHammer").innerHTML =
       '<button class="pick ' + (S.nightChoice.hammerTargetId == null ? "selected" : "") + '" data-hammer="none">不使用木槌</button>' +
       options.map((s) => '<button class="pick ' + (S.nightChoice.hammerTargetId === s.id ? "selected" : "") + '" data-hammer="' + s.id + '">' +
-        '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + "</span></button>").join("");
+        avatarChip(s.id, s.name) + "<span>" + esc(s.name) + "</span></button>").join("");
   }
   $("nightConfessBlock").hidden = !info.canConfess;
   $("confessCheck").checked = S.nightChoice.confess;
@@ -665,7 +949,7 @@ function renderDawn() {
   if (info.isWitch) {
     $("dawnTargets").innerHTML = (S.projection?.seats ?? []).filter((s) => s.alive).map((s) =>
       '<button class="pick ' + (S.dawnTarget === s.id ? "selected" : "") + '" data-dawn-target="' + s.id + '">' +
-      '<span class="avatar">' + esc(s.name.slice(0, 1)) + "</span><span>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</span></button>").join("");
+      avatarChip(s.id, s.name) + "<span>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</span></button>").join("");
   }
 }
 
@@ -675,8 +959,10 @@ function renderOver() {
   $("overReason").textContent = p?.winnerReason ?? "";
   $("overRoles").innerHTML = (p?.seats ?? []).map((s) => {
     const kindClass = s.everWitch === true ? "witch" : "";
-    return '<div class="over-role ' + kindClass + '"><b>' + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</b>" +
-      esc(roleName(s.role)) + " · " + (s.alive ? "存活" : "死亡") + "<br />" + trialChips(s) + "</div>";
+    return '<div class="over-role ' + kindClass + '"><div class="over-head">' + avatarChip(s.id, s.name) +
+      "<b>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</b></div>" +
+      '<div class="over-meta">' + esc(roleName(s.role)) + " · " + (s.alive ? "存活" : "死亡") + "</div>" +
+      trialChips(s) + "</div>";
   }).join("");
 }
 
@@ -687,6 +973,7 @@ function updateTimers() {
   const myTurnNow = S.projection?.phase === "action" && S.projection.currentPlayerId === S.seatId;
   const actionLeft = myTurnNow && p?.turnDeadline ? seconds(p.turnDeadline) : null;
   $("turnBadge").textContent = S.turnLabel + (actionLeft !== null ? " · " + actionLeft + "s" : "");
+  if (S.deal?.deadline) $("dealTimer").textContent = seconds(S.deal.deadline) + "s";
   if (p?.dawn?.deadline) $("dawnTimer").textContent = seconds(p.dawn.deadline) + "s";
   if (p?.night?.deadline) $("nightTimer").textContent = seconds(p.night.deadline) + "s";
 }
@@ -716,6 +1003,7 @@ function closeModal() {
 
 function beginPlay(cardId, asWitness = false, useAbigail = false) {
   if (!myTurn()) { toast("还没轮到你"); return; }
+  if (revealLocked()) { toast("先等这次揭示选完位置"); return; }
   const c = card(cardId);
   if (c.target === "two") {
     S.pending = { cardId, asWitness, useAbigail, stage: "source" };
@@ -743,6 +1031,7 @@ function sendPlay(cardId, targetId, sourceId, asWitness, useAbigail = false, blu
 }
 
 function onSeatClick(id) {
+  if (revealLocked()) return;
   if (!S.pending) return;
   const c = card(S.pending.cardId);
   if (S.pending.stage === "source") {
@@ -800,6 +1089,7 @@ function submitDawn() {
 // 抬手挂着的面板状态一起清掉，然后回落地页。
 function resetRoomState() {
   clearSession();
+  resetAvatars(null);
   S.room = null;
   S.projection = null;
   S.private = null;
@@ -807,6 +1097,9 @@ function resetRoomState() {
   S.pending = null;
   S.nightKey = null;
   S.dawnKey = null;
+  S.deal = null;
+  S.dealFlipped = new Set();
+  S.dealKey = null;
   closeModal();
   render();
 }
@@ -922,6 +1215,35 @@ function bind() {
     renderLog();
   });
   $("closeLog").addEventListener("click", () => { $("logDrawer").hidden = true; });
+  $("dealCards").addEventListener("click", (event) => {
+    const el = event.target.closest("[data-deal-card]");
+    if (!el) return;
+    S.dealFlipped.add(Number(el.dataset.dealCard));
+    renderDeal();
+  });
+  $("dealRoles").addEventListener("click", (event) => {
+    const el = event.target.closest("[data-role]");
+    if (!el) return;
+    act({ kind: "chooseRole", roleId: el.dataset.role });
+  });
+  $("dealAckBtn").addEventListener("click", () => {
+    if ($("dealAckBtn").disabled) return;
+    act({ kind: "dealAck" });
+  });
+  $("selfPanel").addEventListener("click", (event) => {
+    const el = event.target.closest("[data-trial]");
+    if (!el) return;
+    openTrialModal(Number(el.dataset.trial));
+  });
+  $("revealBar").addEventListener("click", (event) => {
+    const decline = event.target.closest("[data-reveal-decline]");
+    if (decline) { act({ kind: "decline" }); return; }
+    const slot = event.target.closest("[data-reveal-index]");
+    if (!slot || slot.disabled) return;
+    const trialIndex = Number(slot.dataset.revealIndex);
+    if (!Number.isInteger(trialIndex)) return;
+    act({ kind: "reveal", trialIndex });
+  });
   $("opponents").addEventListener("click", (event) => {
     const button = event.target.closest("[data-seat]");
     if (button) onSeatClick(Number(button.dataset.seat));

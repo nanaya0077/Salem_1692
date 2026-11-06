@@ -38,6 +38,7 @@ const EXPECTED_ERRORS = new Set([
   "cannot-target-self",
   "invalid-target",
   "bad-target",
+  "reveal-pending",
 ]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -157,7 +158,8 @@ class BotClient {
   queue(action) {
     // 新状态覆盖旧动作：夜晚/换人时，旧的定时器不能把过期动作发出去。
     if (this.actionTimer) clearTimeout(this.actionTimer);
-    const expectedPhase = action?.kind === "dawn" ? "dawn" : action?.kind === "night" ? "night" : "action";
+    const isDeal = action?.kind === "chooseRole" || action?.kind === "dealAck";
+    const expectedPhase = action?.kind === "dawn" ? "dawn" : action?.kind === "night" ? "night" : isDeal ? "deal" : "action";
     this.actionTimer = setTimeout(() => {
       this.actionTimer = null;
       if (this.closed) return;
@@ -192,6 +194,18 @@ class BotClient {
       priv?.night?.submitted,
     ].join(":");
 
+    // 发牌相位（#10）：选第一张候选，然后确认身份卡。
+    if (p.phase === "deal") {
+      const seat = p.seats.find((s) => s.id === this.seatId);
+      if (!seat) return;
+      if (!seat.roleChosen && (seat.roleOptions ?? []).length) {
+        this.queue({ kind: "chooseRole", roleId: seat.roleOptions[0] });
+        return;
+      }
+      if (!priv?.acknowledged) this.queue({ kind: "dealAck" });
+      return;
+    }
+
     if (p.phase === "dawn" && priv?.dawn?.isWitch && !priv.dawn.submitted) {
       this.lastKey = key;
       this.queue({ kind: "dawn", targetId: pick(aliveOtherIds(p, this.seatId)) });
@@ -215,6 +229,14 @@ class BotClient {
     if (p.phase !== "action" || p.currentPlayerId !== this.seatId) return;
     if (this.lastKey === key) return;
     this.lastKey = key;
+
+    // 挂起揭示（#13）：只有选择者的投影里才有 pendingReveal，直接取第一张未揭示的身份卡。
+    // 挂起期抽牌/出牌/结束回合都会被服务端拒掉，所以这一步必须排在动作之前。
+    if (p.pendingReveal) {
+      const slot = p.pendingReveal.slots.findIndex((s) => s === "hidden");
+      if (slot >= 0) this.queue({ kind: "reveal", trialIndex: slot });
+      return;
+    }
 
     if (p.actionTaken) {
       this.queue({ kind: "end" });

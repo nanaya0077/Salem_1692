@@ -6,11 +6,14 @@ import type {
   GameEvent,
   GameState,
   NightState,
+  PendingRevealView,
   PlayAction,
   PlayerState,
   Projection,
   PublicPlayer,
   PublicTrial,
+  RevealCause,
+  RevealCommand,
   RoleId,
   TrialCard,
 } from "./types.ts";
@@ -89,6 +92,7 @@ export function cloneState(state: GameState): GameState {
     config: { ...state.config },
     players: state.players.map((p) => ({
       ...p,
+      roleOptions: p.roleOptions.slice(),
       hand: p.hand.slice(),
       accusations: p.accusations.slice(),
       blue: p.blue.slice(),
@@ -102,12 +106,29 @@ export function cloneState(state: GameState): GameState {
     currentPlayerId: state.currentPlayerId,
     turn: { ...state.turn },
     night: state.night ? { ...state.night, confessions: state.night.confessions.slice() } : null,
+    pendingReveal: state.pendingReveal ? { ...state.pendingReveal } : null,
     winner: state.winner,
     winnerReason: state.winnerReason,
     constableId: state.constableId,
     rngState: state.rngState,
     log: state.log.slice(),
   };
+}
+
+export function chooseRole(state: GameState, playerId: number, roleId: RoleId): ActionResult {
+  if (state.phase !== "deal") return { ok: false, reason: "not-deal-phase" };
+  const player = state.players[playerId];
+  if (!player) return { ok: false, reason: "unknown-player" };
+  if (player.roleChosen) return { ok: false, reason: "role-already-chosen" };
+  if (!player.roleOptions.includes(roleId)) return { ok: false, reason: "role-not-offered" };
+  const next = cloneState(state);
+  const chosen = next.players[playerId];
+  chosen.role = roleId;
+  chosen.roleOptions = [];
+  chosen.roleChosen = true;
+  const events: GameEvent[] = [{ type: "roleChosen", playerId, role: roleId }];
+  pushEvents(next, events);
+  return { ok: true, state: next, events };
 }
 
 export function canPlayCard(
@@ -123,6 +144,7 @@ export function canPlayCard(
   const actor = state.players[actorId];
   if (!actor || !actor.alive) return { ok: false, reason: "actor-not-alive" };
   if (state.phase !== "action") return { ok: false, reason: "not-action-phase" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   if (state.currentPlayerId !== actorId) return { ok: false, reason: "not-your-turn" };
   if (!actor.hand.includes(cardId)) return { ok: false, reason: "card-not-in-hand" };
   if (card.color === "black") return { ok: false, reason: "black-card-resolves-on-draw" };
@@ -173,6 +195,7 @@ function revealTrial(
   cause: string,
   events: GameEvent[],
   trialId?: string,
+  auto = false,
 ): boolean {
   const target = state.players[targetId];
   if (!target || !target.alive) return false;
@@ -185,7 +208,8 @@ function revealTrial(
     return false;
   }
   trial.revealed = true;
-  events.push({ type: "trialRevealed", playerId: targetId, kind: trial.kind, cause, chooserId });
+  // auto 只在服务端托管/超时代翻时置 true；规则层自己触发的揭示（传染、自首等）不置。
+  events.push({ type: "trialRevealed", playerId: targetId, kind: trial.kind, cause, chooserId, ...(auto ? { auto: true } : {}) });
   if (state.phase === "action" && state.currentPlayerId === chooserId) state.turn.trialsRevealed += 1;
   if (trial.kind === "witch") {
     target.everWitch = true;
@@ -330,6 +354,76 @@ function killPlayer(state: GameState, playerId: number, cause: string, events: G
   }
 }
 
+/**
+ * 放弃只在「托马斯·丹福斯把普通玩家压到第 6 点」时可选：
+ * 再往上的点数按普通门槛正常触发，不再给第二次放弃机会。
+ */
+function canDeclineReveal(state: GameState, targetId: number, chooserId: number, cause: RevealCause): boolean {
+  if (cause !== "accusation") return false;
+  if (thresholdFor(state, targetId, chooserId) !== 6) return false;
+  return accusationTotal(state, targetId) === 6;
+}
+
+/** 揭示之后的附带结算：清空目标红卡、阿比盖尔弃自己的红卡、丽贝卡抽 1。 */
+function settleAfterReveal(
+  state: GameState,
+  targetId: number,
+  chooserId: number,
+  cause: RevealCause,
+  useAbigail: boolean,
+  events: GameEvent[],
+): void {
+  const target = state.players[targetId];
+  const count = target.accusations.length;
+  state.discard.push(...target.accusations);
+  target.accusations = [];
+  events.push({ type: "accusationsDiscarded", playerId: targetId, count });
+  const actor = state.players[chooserId];
+  if (useAbigail && actor && actor.alive && effectiveRole(state, chooserId) === "abigail-williams" && actor.accusations.length > 0) {
+    const own = actor.accusations.length;
+    state.discard.push(...actor.accusations);
+    actor.accusations = [];
+    events.push({ type: "accusationsDiscarded", playerId: chooserId, count: own });
+    events.push({ type: "powerUsed", playerId: chooserId, power: "abigail-williams" });
+  }
+  // 丽贝卡：其他玩家因指控翻牌时抽 1。
+  if (cause !== "accusation") return;
+  const rebecca = state.players.find((p) => p.alive && effectiveRole(state, p.id) === "rebecca-nurse");
+  if (rebecca && rebecca.id !== targetId && !state.winner) drawOne(state, events, true, rebecca.id);
+}
+
+/**
+ * 达到门槛后的揭示入口：只剩一张未揭示且不可放弃时直接翻开，否则挂起等选择者指定位置。
+ * 可放弃优先于省掉选位置（ADR 0002）：丹福斯把目标压到正好 6 点、目标只剩一张，
+ * 仍要进挂起，否则玩家会失去放弃权。
+ * 卡 id 在挂起期间不离开规则层，对外只发位置号。
+ */
+function triggerReveal(
+  state: GameState,
+  targetId: number,
+  chooserId: number,
+  cause: RevealCause,
+  events: GameEvent[],
+  useAbigail = false,
+): void {
+  const target = state.players[targetId];
+  if (!target || !target.alive) return;
+  const hidden = target.trials.filter((t) => !t.revealed);
+  if (hidden.length === 0) {
+    // 没有未揭示身份卡：按“所有身份卡已揭示”死亡处理。
+    killPlayer(state, targetId, "no-unrevealed-trial", events);
+    settleAfterReveal(state, targetId, chooserId, cause, useAbigail, events);
+    return;
+  }
+  const canDecline = canDeclineReveal(state, targetId, chooserId, cause);
+  if (hidden.length === 1 && !canDecline) {
+    revealTrial(state, targetId, chooserId, cause, events, hidden[0].id);
+    settleAfterReveal(state, targetId, chooserId, cause, useAbigail, events);
+    return;
+  }
+  state.pendingReveal = { targetId, chooserId, cause, canDecline, useAbigail };
+}
+
 function addAccusation(
   state: GameState,
   targetId: number,
@@ -344,27 +438,7 @@ function addAccusation(
   const total = accusationTotal(state, targetId);
   events.push({ type: "accusationAdded", targetId, cardId, points, total });
   if (total >= thresholdFor(state, targetId, attackerId)) {
-    revealTrial(state, targetId, attackerId, "accusation", events);
-    const count = target.accusations.length;
-    state.discard.push(...target.accusations);
-    target.accusations = [];
-    events.push({ type: "accusationsDiscarded", playerId: targetId, count });
-    if (useAbigail && effectiveRole(state, attackerId) === "abigail-williams" && state.players[attackerId].alive) {
-      const actor = state.players[attackerId];
-      if (actor.accusations.length > 0) {
-        const count = actor.accusations.length;
-        state.discard.push(...actor.accusations);
-        actor.accusations = [];
-        events.push({ type: "accusationsDiscarded", playerId: attackerId, count });
-        events.push({ type: "powerUsed", playerId: attackerId, power: "abigail-williams" });
-      }
-    }
-    // 丽贝卡：其他玩家因指控翻牌时抽 1。
-    const rebecca = state.players.find((p) => p.alive && effectiveRole(state, p.id) === "rebecca-nurse");
-    if (rebecca && rebecca.id !== targetId && !state.winner) {
-      const result = drawOne(state, events, true, rebecca.id);
-      if (result === "night") state.turn.pendingDraws += 0;
-    }
+    triggerReveal(state, targetId, attackerId, "accusation", events, useAbigail);
   }
 }
 
@@ -434,18 +508,7 @@ export function playCard(state: GameState, action: PlayAction): ActionResult {
         next.discard.push(wanted);
         events.push({ type: "blueDiscarded", playerId: target.id, cardId: wanted });
         if (wanted === "piety" && accusationTotal(next, target.id) >= thresholdFor(next, target.id, actor.id)) {
-          revealTrial(next, target.id, actor.id, "curse", events);
-          const count = target.accusations.length;
-          next.discard.push(...target.accusations);
-          target.accusations = [];
-          events.push({ type: "accusationsDiscarded", playerId: target.id, count });
-          if (action.useAbigail === true && effectiveRole(next, actor.id) === "abigail-williams" && actor.alive && actor.accusations.length > 0) {
-            const own = actor.accusations.length;
-            next.discard.push(...actor.accusations);
-            actor.accusations = [];
-            events.push({ type: "accusationsDiscarded", playerId: actor.id, count: own });
-            events.push({ type: "powerUsed", playerId: actor.id, power: "abigail-williams" });
-          }
+          triggerReveal(next, target.id, actor.id, "curse", events, action.useAbigail === true);
         }
       }
     }
@@ -482,18 +545,7 @@ export function playCard(state: GameState, action: PlayAction): ActionResult {
       events.push({ type: "matchmakerBroke", playerIds: [target.id] });
     }
     if (accusationTotal(next, target.id) >= thresholdFor(next, target.id, actor.id)) {
-      revealTrial(next, target.id, actor.id, "scapegoat", events);
-      const count = target.accusations.length;
-      next.discard.push(...target.accusations);
-      target.accusations = [];
-      events.push({ type: "accusationsDiscarded", playerId: target.id, count });
-      if (action.useAbigail === true && effectiveRole(next, actor.id) === "abigail-williams" && actor.alive && actor.accusations.length > 0) {
-        const own = actor.accusations.length;
-        next.discard.push(...actor.accusations);
-        actor.accusations = [];
-        events.push({ type: "accusationsDiscarded", playerId: actor.id, count: own });
-        events.push({ type: "powerUsed", playerId: actor.id, power: "abigail-williams" });
-      }
+      triggerReveal(next, target.id, actor.id, "scapegoat", events, action.useAbigail === true);
     }
     next.discard.push(action.cardId);
   } else if (action.cardId === "stocks") {
@@ -519,6 +571,62 @@ export function playCard(state: GameState, action: PlayAction): ActionResult {
   next.turn.actionTaken = true;
   pushEvents(next, events);
   checkWin(next, events);
+  return { ok: true, state: next, events };
+}
+
+/**
+ * 兜底位置号：挂起态下目标第一张未揭示的身份卡。
+ * 超时、托管、机器人代翻都取这个位置；没有挂起或已全部揭示时返回 -1。
+ * 规则语义归规则包，服务端与界面只消费这个结果。
+ */
+export function defaultRevealIndex(state: GameState): number {
+  const pending = state.pendingReveal;
+  if (!pending) return -1;
+  const target = state.players[pending.targetId];
+  if (!target) return -1;
+  return target.trials.findIndex((t) => !t.revealed);
+}
+
+/**
+ * 结算挂起式揭示：按位置号翻开目标那一张身份卡，或（仅丹福斯对普通玩家第 6 点）放弃。
+ * 位置号在规则层映射回身份卡 id，卡 id 不出规则包。
+ */
+export function resolvePendingReveal(
+  state: GameState,
+  actorId: number,
+  command: RevealCommand,
+  options: { auto?: boolean } = {},
+): ActionResult {
+  const pending = state.pendingReveal;
+  if (!pending) return { ok: false, reason: "no-pending-reveal" };
+  if (pending.chooserId !== actorId) return { ok: false, reason: "not-chooser" };
+  const target = state.players[pending.targetId];
+  if (!target) return { ok: false, reason: "unknown-target" };
+
+  if (command.kind === "decline") {
+    if (!pending.canDecline) return { ok: false, reason: "cannot-decline" };
+    const next = cloneState(state);
+    const declined = next.players[pending.targetId];
+    next.pendingReveal = null;
+    const events: GameEvent[] = [
+      { type: "notice", text: next.players[actorId].name + " 放弃揭示：" + declined.name + " 面前的红卡保留。" },
+    ];
+    pushEvents(next, events);
+    return { ok: true, state: next, events };
+  }
+
+  if (!Number.isInteger(command.trialIndex) || command.trialIndex < 0 || command.trialIndex >= target.trials.length) {
+    return { ok: false, reason: "bad-trial-index" };
+  }
+  if (target.trials[command.trialIndex].revealed) return { ok: false, reason: "trial-already-revealed" };
+
+  const next = cloneState(state);
+  const trialId = next.players[pending.targetId].trials[command.trialIndex].id;
+  next.pendingReveal = null;
+  const events: GameEvent[] = [];
+  revealTrial(next, pending.targetId, pending.chooserId, pending.cause, events, trialId, options.auto === true);
+  settleAfterReveal(next, pending.targetId, pending.chooserId, pending.cause, pending.useAbigail, events);
+  pushEvents(next, events);
   return { ok: true, state: next, events };
 }
 
@@ -571,6 +679,7 @@ function continueDraws(state: GameState, events: GameEvent[], options: DrawOptio
 
 export function drawTwo(state: GameState, options: DrawOptions = {}): ActionResult {
   if (state.phase !== "action") return { ok: false, reason: "not-action-phase" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   if (state.turn.actionTaken) return { ok: false, reason: "action-already-taken" };
   const next = cloneState(state);
   const events: GameEvent[] = [];
@@ -585,6 +694,7 @@ export function drawTwo(state: GameState, options: DrawOptions = {}): ActionResu
 
 export function endTurn(state: GameState): ActionResult {
   if (state.phase !== "action") return { ok: false, reason: "not-action-phase" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   if (!state.turn.actionTaken) return { ok: false, reason: "must-draw-or-play" };
   const next = cloneState(state);
   const events: GameEvent[] = [];
@@ -737,7 +847,7 @@ function resolveNightInternal(state: GameState, choice: NightChoice, events: Gam
   night.hammerTargetId = choice.hammerTargetId ?? null;
   if (night.hammerTargetId !== null) {
     const hammer = state.players[night.hammerTargetId];
-    // hammerTargetId 是被木槌赦免的玩家；必须先有在任治安官。
+    // hammerTargetId 是被木槌赦免的玩家；必须先有在任警长。
     if (!hammer || !hammer.alive || state.constableId === null || night.hammerTargetId === state.constableId) {
       night.hammerTargetId = null;
     }
@@ -792,6 +902,7 @@ function finishNight(state: GameState, events: GameEvent[]): void {
 
 export function samuelTake(state: GameState, actorId: number, cardIds: CardId[]): ActionResult {
   if (state.phase !== "action" || state.currentPlayerId !== actorId) return { ok: false, reason: "not-your-turn" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   const actor = state.players[actorId];
   if (!actor || !actor.alive) return { ok: false, reason: "actor-not-alive" };
   if (effectiveRole(state, actorId) !== "samuel-parris") return { ok: false, reason: "not-samuel" };
@@ -818,6 +929,7 @@ export function samuelTake(state: GameState, actorId: number, cardIds: CardId[])
 
 export function titubaReorder(state: GameState, actorId: number, order: CardId[]): ActionResult {
   if (state.phase !== "action" || state.currentPlayerId !== actorId) return { ok: false, reason: "not-your-turn" };
+  if (state.pendingReveal) return { ok: false, reason: "reveal-pending" };
   const actor = state.players[actorId];
   if (!actor || !actor.alive) return { ok: false, reason: "actor-not-alive" };
   if (effectiveRole(state, actorId) !== "tituba") return { ok: false, reason: "not-tituba" };
@@ -848,6 +960,8 @@ export function project(state: GameState, viewerId: number): Projection {
       id: p.id,
       name: p.name,
       role: p.role,
+      roleOptions: p.roleOptions.slice(),
+      roleChosen: p.roleChosen,
       alive: p.alive,
       handCount: p.hand.length,
       accusations: accusationTotal(state, p.id),
@@ -858,7 +972,7 @@ export function project(state: GameState, viewerId: number): Projection {
       everWitch: p.id === viewerId || !p.alive ? p.everWitch : null,
     };
   });
-  return {
+  const projection: Projection = {
     version: state.log.length,
     phase: state.phase,
     currentPlayerId: state.currentPlayerId,
@@ -885,6 +999,18 @@ export function project(state: GameState, viewerId: number): Projection {
     seats,
     night: state.night ? { active: true, targetKnown: false } : null,
   };
+  // 挂起态只投给选择者：位置号是公开可说的，「哪一张是哪张」不是。
+  const pending = state.pendingReveal;
+  if (pending && pending.chooserId === viewerId) {
+    const view: PendingRevealView = {
+      chooserId: pending.chooserId,
+      targetId: pending.targetId,
+      slots: state.players[pending.targetId].trials.map((t) => (t.revealed ? "revealed" : "hidden")),
+      canDecline: pending.canDecline,
+    };
+    projection.pendingReveal = view;
+  }
+  return projection;
 }
 
 export function defaultNightChoice(state: GameState): NightChoice {

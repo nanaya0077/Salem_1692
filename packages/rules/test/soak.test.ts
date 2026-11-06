@@ -8,9 +8,12 @@ import {
   drawTwo,
   effectiveRole,
   endTurn,
+  finishDeal,
   playCard,
   project,
   resolveNight,
+  resolvePendingReveal,
+  startGame,
 } from "../src/index.ts";
 import type { CardId, GameState, PlayAction, RoleId } from "../src/types.ts";
 
@@ -73,6 +76,19 @@ function assertProjection(state: GameState, label: string): void {
         if (source.alive) assert.equal(seat.everWitch, null, label + " 活人 everWitch 不可见");
       }
     }
+    if (state.pendingReveal) {
+      if (state.pendingReveal.chooserId === viewer.id) {
+        assert.ok(view.pendingReveal, label + " 选择者可见挂起态");
+        assert.deepEqual(
+          view.pendingReveal.slots,
+          state.players[state.pendingReveal.targetId].trials.map((t) => (t.revealed ? "revealed" : "hidden")),
+          label + " 挂起态位置号与目标身份卡一致",
+        );
+      } else {
+        assert.equal("pendingReveal" in view, false, label + " 非选择者投影没有挂起键");
+        assert.equal(JSON.stringify(view).includes("pendingReveal"), false, label + " 非选择者投影不含挂起字段");
+      }
+    }
     const tituba = effectiveRole(state, viewer.id) === "tituba" && !viewer.used.tituba;
     if (tituba) {
       assert.equal(view.deckOrder?.length, state.deck.length, label + " 蒂图巴可见牌堆顺序");
@@ -80,6 +96,23 @@ function assertProjection(state: GameState, label: string): void {
       assert.equal(view.deckOrder, null, label + " 他人不可见牌堆顺序");
     }
   }
+}
+
+/** 挂起式揭示总得有人结算：soak 里由选择者按「第一张未揭示」的位置号收掉。 */
+function settlePending(state: GameState, label: string): GameState {
+  let cur = state;
+  let guard = 0;
+  while (cur.pendingReveal && guard++ < 12) {
+    const pending = cur.pendingReveal;
+    const index = cur.players[pending.targetId].trials.findIndex((t) => !t.revealed);
+    assert.ok(index >= 0, label + " 挂起时目标还有未揭示身份卡");
+    const result = resolvePendingReveal(cur, pending.chooserId, { kind: "reveal", trialIndex: index });
+    assert.equal(result.ok, true, label + " 挂起式揭示按位置号结算");
+    if (!result.ok) break;
+    cur = result.state;
+  }
+  assert.equal(cur.pendingReveal, null, label + " 挂起态已结算");
+  return cur;
 }
 
 function candidates(state: GameState): PlayAction[] {
@@ -120,7 +153,7 @@ function candidates(state: GameState): PlayAction[] {
 
 function runGame(seed: number): string {
   const random = lcg(seed);
-  let state = createGame({ playerCount: 12, witchCount: 2, identityCardsPerPlayer: 3 }, { seed });
+  let state = startGame(finishDeal(createGame({ playerCount: 12, witchCount: 2, identityCardsPerPlayer: 3 }, { seed })), 0);
   let step = 0;
   while (state.phase !== "gameOver" && step < 4000) {
     step += 1;
@@ -140,7 +173,11 @@ function runGame(seed: number): string {
       const action = pool[0];
       const result = playCard(state, action);
       assert.equal(result.ok, true, "可打出的牌应结算成功");
-      if (result.ok) state = result.state;
+      if (result.ok) {
+        state = result.state;
+        if (state.pendingReveal) assertProjection(state, "seed " + seed + " step " + step + " 挂起");
+        state = settlePending(state, "seed " + seed + " step " + step);
+      }
     } else {
       const result = drawTwo(state);
       assert.equal(result.ok, true, "抽牌");

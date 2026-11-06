@@ -1,11 +1,16 @@
 // 缓存对 app.js 是 cache-first，改客户端脚本时必须同步升版本号，
 // 否则已装过旧版的浏览器会一直跑旧脚本，线上等于没修。
-const VERSION = "salem-v2";
+// salem-v5：合并 spec-7 发牌/揭示线——新增 table-view/deal-view/reveal-view 三个模块，
+// 与 reconnect.js 一起进缓存清单，四个模块必须同版本发布。
+const VERSION = "salem-v5";
 const SHELL = [
   "/",
   "/styles.css",
   "/app.js",
   "/reconnect.js",
+  "/table-view.js",
+  "/deal-view.js",
+  "/reveal-view.js",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -45,7 +50,8 @@ self.addEventListener("fetch", (event) => {
   }
 
   const cacheable = url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") ||
-    ["/styles.css", "/app.js", "/reconnect.js", "/manifest.webmanifest"].includes(url.pathname);
+    ["/styles.css", "/app.js", "/reconnect.js", "/table-view.js", "/deal-view.js", "/reveal-view.js",
+      "/manifest.webmanifest"].includes(url.pathname);
   if (!cacheable) return;
 
   event.respondWith(

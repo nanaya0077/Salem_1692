@@ -50,8 +50,6 @@ export interface CreateGameOptions {
   roles?: RoleId[];
   hands?: CardId[][];
   names?: string[];
-  autoStart?: boolean;
-  blackCatTarget?: number;
 }
 
 export function createGame(input: Parameters<typeof resolveConfig>[0], options: CreateGameOptions = {}): GameState {
@@ -61,10 +59,11 @@ export function createGame(input: Parameters<typeof resolveConfig>[0], options: 
     players: [],
     deck: [],
     discard: [],
-    phase: "dawn",
+    phase: "deal",
     currentPlayerId: 0,
     turn: { playerId: 0, actionTaken: false, drewThisTurn: 0, cardsPlayed: 0, trialsRevealed: 0, pendingDraws: 0, ending: false, mainDraws: [], gilesEligible: false },
     night: null,
+    pendingReveal: null,
     winner: null,
     winnerReason: null,
     constableId: null,
@@ -75,6 +74,8 @@ export function createGame(input: Parameters<typeof resolveConfig>[0], options: 
 
   const identityDeck = shuffle(buildIdentityDeck(config), random);
   const roleDeck = shuffle(ALL_ROLES.slice(), random);
+  // 4–7 人每人两张候选选一张；8 人以上直接一人一张。
+  const dealsTwoRoleOptions = config.playerCount <= 7;
 
   // 官方 9 人 35 张无法均分：前 8 人 4 张、末位 3 张；其余人数正常均分。
   const identityTotal = identityCardCounts(config).total;
@@ -83,10 +84,27 @@ export function createGame(input: Parameters<typeof resolveConfig>[0], options: 
   for (let i = 0; i < config.playerCount; i++) {
     const dealt = identityDeck.splice(0, baseCards + (i < extra ? 1 : 0));
     const trials: TrialCard[] = dealt.map((card) => ({ ...card, revealed: false }));
+    const explicitRole = options.roles?.[i];
+    let role: RoleId;
+    let roleOptions: RoleId[] = [];
+    let roleChosen: boolean;
+    if (explicitRole !== undefined) {
+      role = explicitRole;
+      roleChosen = true;
+    } else if (dealsTwoRoleOptions) {
+      role = "none";
+      roleOptions = roleDeck.splice(0, 2);
+      roleChosen = false;
+    } else {
+      role = roleDeck.splice(0, 1)[0] ?? "none";
+      roleChosen = true;
+    }
     const player: PlayerState = {
       id: i,
       name: options.names?.[i] ?? "玩家" + (i + 1),
-      role: options.roles?.[i] ?? roleDeck[i % roleDeck.length] ?? "none",
+      role,
+      roleOptions,
+      roleChosen,
       hand: [],
       accusations: [],
       blue: [],
@@ -125,11 +143,23 @@ export function createGame(input: Parameters<typeof resolveConfig>[0], options: 
   }
 
   state.constableId = findConstableId(state);
-  state.log.push({ type: "notice", text: "身份卡已发；角色卡已公开。" });
+  state.log.push({ type: "notice", text: "身份卡已发；角色卡已发。" });
+  return state;
+}
 
-  if (options.autoStart !== false) {
-    return startGame(state, options.blackCatTarget ?? 0);
+/**
+ * 发牌相位收口：未选者按第一张候选静默落定（超时兜底），随后进入黎明。
+ * 真正的选择日志由 chooseRole 写入；房间层若要把超时兜底写进日志，自行补事件。
+ */
+export function finishDeal(state: GameState): GameState {
+  if (state.phase !== "deal") throw new Error("not-deal-phase");
+  for (const player of state.players) {
+    if (player.roleChosen) continue;
+    player.role = player.roleOptions[0] ?? "none";
+    player.roleOptions = [];
+    player.roleChosen = true;
   }
+  state.phase = "dawn";
   return state;
 }
 
