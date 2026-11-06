@@ -16,7 +16,7 @@
 | 服务 | `salem-online` / `bb45b318-2ee6-4448-9063-fd6f36e8d47c` |
 | 环境 | `production` / `2dcec8b2-89bb-4258-a198-46f12a54f21a` |
 | 构建 | `builder: DOCKERFILE`、`dockerfilePath: /Dockerfile` |
-| 构建 commit | 线上现役 `3c751ae`（PR #23 合并后的 `main`）；同一环境里还留着上一版 `4686b6d` 的可回滚部署 |
+| 构建 commit | 线上现役 `e720751`（发牌确认线与座位资料线合并后的 `main`，部署 `e68d9de2-…`）；同一环境里还留着 `3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）两份可回滚部署 |
 | 副本 | `numReplicas: 1` |
 | 区域 | `multiRegionConfig: { asia-southeast1-eqsg3a: { numReplicas: 1 } }`（Singapore 单区） |
 | 健康检查 | `healthcheckPath: /health`，`healthcheckTimeout: 300` 秒 |
@@ -66,7 +66,7 @@
 - 部署 id `5bc7089f-3818-4632-a6c5-f80d1f6b3277`，`createdAt 2026-11-06T02:57:21.113Z`，`BUILDING → DEPLOYING → SUCCESS`；`meta.commitHash 3c751aeb364c7daee623ed0a0457156d30b15d6b`、`imageDigest sha256:c613880105a1…`、`builder DOCKERFILE`、`dockerfilePath /Dockerfile`。
 - 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":18.98}`（与 18 秒前的发布对齐）；`deploy-smoke.mjs` **9/9 通过**（首页 8581 bytes、建房 `598TNQ`、`wss://` 握手 101）；`/reconnect.js` 200（2764 bytes，含 `ROOM_GONE_MESSAGE`）、`/sw.js` 报 `salem-v2`、首页含 `id="reopenBtn"` —— 三项一起证明线上跑的就是 #19 之后的代码，不是缓存里的旧前端。
 
-历史记录（供以后判断「线上是不是新版」参考）：本次发布之前，线上那份部署的构建 commit 是 `4686b6d`，早于 #19，首页缺「重新开房」按钮、也没有 `/reconnect.js`。所以「重启后旧房码失效」只能在**发布一次之后**验，否则验到的是没有终态提示的旧前端。判断线上版本的三个廉价探针：`/reconnect.js` 是否 200、`/sw.js` 里的 `salem-vN`、首页是否含 `id="reopenBtn"`。
+历史记录（供以后判断「线上是不是新版」参考）：本次发布之前，线上那份部署的构建 commit 是 `4686b6d`，早于 #19，首页缺「重新开房」按钮、也没有 `/reconnect.js`。所以「重启后旧房码失效」只能在**发布一次之后**验，否则验到的是没有终态提示的旧前端。判断线上版本的廉价探针：`/reconnect.js` 是否 200、`/sw.js` 里的 `salem-vN`、首页是否含 `id="reopenBtn"`；要判「发牌确认线与座位资料线在不在」，再加 `/deal-view.js`、`/reveal-view.js`、`/table-view.js`、`/profile-store.js`、`/avatar-normalize.js` 五个是否 200（`e720751` 之前它们全是 404）。
 
 ## 回滚一次
 
@@ -116,6 +116,14 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 - 点「重新开房」→ 直接开新房，房码 `5Y4E99`，同一昵称在座 1/12、房主、已准备 —— 终态确实是可结束的结束，不是死页。
 - 后端侧同一条因果链：重启后 `/api/rooms/RJJDTJ` 返回 404（房间随进程消失），再 join 得到 `{"type":"error","message":"房间不存在或已结束","reason":"room-not-found"}`。
 
+**证据位 E4（发布 `e720751`：两条产品线合并后的首次上线）· 已回填 2026-11-06**：
+- 发布对象 `main` @ `e720751`（`spec-7` 发牌确认/挂起揭示线与座位级个人资料线合并后的提交）。
+- 调用 `serviceInstanceDeployV2(commitSha: "e7207512e9426a0034f76660d9bff1eaeeea2d73", environmentId: "2dcec8b2-89bb-4258-a198-46f12a54f21a", serviceId: "bb45b318-2ee6-4448-9063-fd6f36e8d47c")`（面板会话直调 GraphQL）→ 返回部署 `e68d9de2-66da-48a2-914d-aedbf7b5c3b4`；`createdAt 2026-11-06T05:31:11.591Z`、`updatedAt 05:31:42.831Z`（构建 31 秒）后为 `SUCCESS`；`meta.commitHash e7207512e942…`、`imageDigest sha256:5fb1ac6d…`、`builder DOCKERFILE`、`healthcheckPath /health`、`numReplicas 1`、`asia-southeast1-eqsg3a` 全部与「现状」表一致。
+- 版本探针（发布前 → 发布后）：`/deal-view.js` 404 → **200 / 1971 bytes**、`/reveal-view.js` 404 → **200 / 2117 bytes**、`/table-view.js` 404 → **200 / 1985 bytes**、`/profile-store.js` 404 → **200 / 4844 bytes**、`/avatar-normalize.js` 404 → **200 / 3356 bytes**、`/sw.js` `salem-v2` → **`salem-v6`**（2211 bytes）；首页 8581 → **11269 bytes**，`reopenBtn` 仍在。前五条 404 一起证明这次之前线上确实没有这两条产品线。
+- 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":314.19}`；`deploy-smoke.mjs` **9/9 通过**（建房 `2Q5DWF`、`wss://` 握手 101）。
+- 真浏览器实拍（390×844，`docs/acceptance/shots/live-deal-e720751.png`、`live-dawn-e720751.png`）：落地页填昵称 → 建房 `EKSX2Q` → 加 3 个机器人（4/12）→ 开始游戏；「发牌确认」面板渲染出标题「选择你的角色（选定后不可更改）」、两张候选（`data-role="william-phipps"` / `mary-warren`）、「已看 0 / 5」五张待翻身份卡与三个机器人的「已确认」，17 秒倒计时在走；选威廉·菲普斯 →「进入黎明」通过，黎明屏出现「你是女巫：选择把黑猫放到谁面前」。
+- 发布前线上只有一间 `phase: over`、房主已断开（`connected: false`）的废房 `PQ6PBY`，这次发布没有打断进行中的对局。
+
 ## 看日志与排障
 
 - 运行日志在服务 → Logs；客户端连不上的第一件事是看有没有 `salem server listening` 行、有没有进程崩溃栈。
@@ -152,6 +160,7 @@ $env:BASE="http://127.0.0.1:8137"; node apps/server/test/deploy-smoke.mjs
 | 文档的一次性配置项与面板实际值逐项一致 | 已对齐 | 「现状」表逐行，含项目/服务/环境 id、构建器与 Dockerfile 路径、副本、区域、健康检查、变量、域名 targetPort、Auto Deploy；另修正「Deployments 页有 Deploy 按钮」这一处与面板不符的描述 |
 | README 有一句指向运维文档 | 已加 | `README.md` 文档段 |
 | 冒烟脚本对公网跑通 | 已通过 | 2026-11-06 共跑 4 次（发布后、回滚后、复位后）：每次 9 项全 ok |
+| 发牌确认线与座位资料线已上线 | 已通过 2026-11-06 | 证据位 E4：部署 `e68d9de2-…` / commit `e720751` / 五个前端模块从 404 变 200、`/sw.js` 变 `salem-v6`、冒烟 9/9、真浏览器发牌屏出角色候选 |
 
 公网冒烟实测输出（2026-11-06，发布 `3c751ae` 之后立刻跑，`/health` 报 `uptime` 约 19 秒，与发布时刻对齐）：
 
