@@ -162,4 +162,11 @@ server 8/8 (PORT_BASE=8280) · web 69/69 · rules 52/52
 2. `spec-7-int@8b88ab1` 已合入 `main`，merge commit `fb81db6`，已推送：`d0976ae..fb81db6  main -> main`。
 3. 合并后实测：`packages/rules` 52/52、`apps/web` 69/69、`apps/server` 8/8（`node apps/server/test/run-suite.mjs`，`PORT_BASE=8280`）。冲突只在 `apps/web/app.js` 与 `apps/web/sw.js` 各 3 段，取法见 commit message 与上文第 1 步。
 4. `docs/adr/0001-deal-phase.md` 与 `docs/adr/0002-pending-reveal.md` 此前只存在于被弃的拼装提交 `d401c6a` 里（`origin/main` 上 ADR 编号从 0003 起，有洞）。两份已取出并随本次一并入库。
-5. 尚未做：第 2 步（`feat/seat-profile-lead`）——卡在 `avatar-normalize.js` 两套 API 的取舍；第 3 步分支与 worktree 清理。
+5. 第 2 步：`feat/seat-profile-lead` 已合入 `main`，merge commit `a3bb8c2`，随后 `e102c3f` 补齐离线壳版本断言，已推送：`0c4f0da..e102c3f  main -> main`。10 个文件 25 块冲突，逐块取法见 commit message，要点：
+   - `avatar-normalize.js` 取**本线整份**——`main` 侧那套（`9af776a`）全仓零调用方，只有它自己的测试引用、且那条测试是红的；
+   - `server.mjs` 反过来统一到 **`main` 侧**的 `handleProfile` / `parseAvatar` / `avatarsOf`，删净本线的 `checkAvatar` / `applyProfile` / `avatarMap` 与不可达分发分支——两套并存时 `AVATAR_MAX_BYTES` 被声明两次，直接构成语法错；
+   - `profile-state.js` 与 `profile-store.js` 并存的那段历史就此收口，只留后者。
+   合并后实测：`packages/rules` 52/52、`apps/web` 98/98、`apps/server` 8/8（`PORT_BASE=8291`）。
+6. 第 3 步：11 个分支（`spec-7-int`、`feat/seat-profile-lead`、`lead/dryrun-spec7`、`lead/dryrun-profile`，以及 `feat/*` 与 `ticket/*` 的 7 个副本、`integrate/seat-profile`）全部删除，本地只剩 `main`；15 个 worktree 全部 `git worktree remove`，另清掉 `_salem-wt`、`_salem_wt/final`、`salem-int`、`salem-wt-11`、`salem-wt-14` 五个残留目录。删前逐个确认「独有提交=0」或内容已被 `profile-store.js` 取代。
+   `_salem_wt/notes/` 存着 `ticket-4`/`ticket-5` 的历史 patch 与 brief，未随目录一并删除。
+7. 顺带清掉 14 个占着端口的僵尸 `node src/server.mjs` 进程——它们是先前暴力跑服务端脚本留下的，也正是上文「端口污染假红」的来源。
