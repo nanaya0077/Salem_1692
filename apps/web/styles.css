@@ -332,7 +332,6 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .over-head .avatar { width: 24px; height: 24px; font-size: 11px; }
 .over-meta { margin: 2px 0 4px; color: var(--muted); }
 .over-role .trial-chip { margin-right: 3px; }
-.over-role.witch { border-color: rgba(166,58,50,.5); }
 .over-role.constable { border-color: rgba(74,111,146,.5); }
 
 /* card modal */

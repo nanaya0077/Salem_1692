@@ -43,7 +43,7 @@ test("客户端读顶层 revealWait 与自动揭示记录", () => {
 
 test("离线壳收进新模块并升版本", () => {
   const version = sw.match(/const VERSION = "([^"]+)"/)?.[1];
-  assert.equal(version, "salem-v10", "新模块进壳后 VERSION 必须是当前这一版，旧缓存才会整批作废");
+  assert.equal(version, "salem-v11", "新模块进壳后 VERSION 必须是当前这一版，旧缓存才会整批作废");
   assert.ok(sw.includes('"/reveal-view.js"'), "SHELL 要收 /reveal-view.js");
   const cacheable = sw.slice(sw.indexOf("const cacheable"));
   assert.ok(cacheable.includes('"/reveal-view.js"'), "cacheable 列表也要收 /reveal-view.js");

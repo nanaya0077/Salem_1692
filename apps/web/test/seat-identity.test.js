@@ -19,7 +19,7 @@ function bodyOf(source, marker) {
     if (source[i] === "{") depth++;
     else if (source[i] === "}" && --depth === 0) return source.slice(open, i + 1);
   }
-  throw new Error(signature + " 的大括号没闭合");
+  throw new Error(marker + " 的大括号没闭合");
 }
 
 // 客户端只在 welcome 里拿到过一次座位号与头像表，之后一直按座位号取人、取头像。
@@ -51,4 +51,13 @@ test("服务端把 resync 挂进同一条 room / projection，而不是另发一
   const calls = server.split("\n").filter((line) => line.trim() === "sync(room, true);").length;
   assert.ok(calls >= 3, "开局重编号、踢人、大厅掉线三条路径都要带 resync，实际只有 " + calls + " 处");
   assert.ok(!server.includes('type: "resync"'), "不该再有独立的 resync 消息类型");
+});
+
+// 第 15 版规则不公开「是否曾为女巫」：服务端始终知道，界面上一个字都不该露。
+test("界面不显示某人是否曾为女巫", () => {
+  const css = readFileSync(join(here, "..", "styles.css"), "utf8");
+  assert.ok(!app.includes("曾为女巫"), "座位卡不该再挂「曾为女巫」小字");
+  const over = bodyOf(app, "function renderOver() ");
+  assert.ok(!over.includes("everWitch"), "结束面板不该按曾为女巫加任何标记");
+  assert.ok(!/\.over-role\.witch\b/.test(css), "已不再生成的 witch 样式要一起删掉");
 });

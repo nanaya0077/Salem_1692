@@ -703,7 +703,6 @@ function renderGame() {
       '<div class="seat-meta"><span>手牌 <b>' + player.handCount + "</b></span><span>指控 <b>" + player.accusations + "</b></span></div>" +
       '<div class="trial-dots">' + (player.trials ?? []).map((t) => '<span class="dot ' + (t.revealed ? trialTone(t.kind) : "") + '"></span>').join("") + "</div>" +
       (miniCards(player) ? '<div class="mini-cards">' + miniCards(player) + "</div>" : "") +
-      (player.everWitch === true ? '<div class="seat-sub" style="color:#d4574b">曾为女巫</div>' : "") +
       "</button>";
   }).join("");
 
@@ -1123,8 +1122,8 @@ function renderOver() {
   $("overTitle").textContent = p?.winner === "town" ? "平民胜利" : p?.winner === "witches" ? "女巫胜利" : "对局结束";
   $("overReason").textContent = p?.winnerReason ?? "";
   $("overRoles").innerHTML = (p?.seats ?? []).map((s) => {
-    const kindClass = s.everWitch === true ? "witch" : "";
-    return '<div class="over-role ' + kindClass + '"><div class="over-head">' + avatarChip(s.id, s.name) +
+    // 第 15 版规则不公开某人过去的女巫身份，这里也不留任何暗示性标记。
+    return '<div class="over-role"><div class="over-head">' + avatarChip(s.id, s.name) +
       "<b>" + esc(s.name) + (s.id === S.seatId ? "（你）" : "") + "</b></div>" +
       '<div class="over-meta">' + esc(roleName(s.role)) + " · " + (s.alive ? "存活" : "死亡") + "</div>" +
       trialChips(s) + "</div>";
