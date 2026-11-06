@@ -16,7 +16,7 @@
 | 服务 | `salem-online` / `bb45b318-2ee6-4448-9063-fd6f36e8d47c` |
 | 环境 | `production` / `2dcec8b2-89bb-4258-a198-46f12a54f21a` |
 | 构建 | `builder: DOCKERFILE`、`dockerfilePath: /Dockerfile` |
-| 构建 commit | 线上现役 `e720751`（发牌确认线与座位资料线合并后的 `main`，部署 `e68d9de2-…`）；同一环境里还留着 `3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）两份可回滚部署 |
+| 构建 commit | 线上现役 `49057d3`（角色卡浮层与开局锁资料，部署 `97f2772a-…`）；同一环境里还留着 `e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）三份可回滚部署 |
 | 副本 | `numReplicas: 1` |
 | 区域 | `multiRegionConfig: { asia-southeast1-eqsg3a: { numReplicas: 1 } }`（Singapore 单区） |
 | 健康检查 | `healthcheckPath: /health`，`healthcheckTimeout: 300` 秒 |
@@ -124,6 +124,13 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 - 真浏览器实拍（390×844，`docs/acceptance/shots/live-deal-e720751.png`、`live-dawn-e720751.png`）：落地页填昵称 → 建房 `EKSX2Q` → 加 3 个机器人（4/12）→ 开始游戏；「发牌确认」面板渲染出标题「选择你的角色（选定后不可更改）」、两张候选（`data-role="william-phipps"` / `mary-warren`）、「已看 0 / 5」五张待翻身份卡与三个机器人的「已确认」，17 秒倒计时在走；选威廉·菲普斯 →「进入黎明」通过，黎明屏出现「你是女巫：选择把黑猫放到谁面前」。
 - 发布前线上只有一间 `phase: over`、房主已断开（`connected: false`）的废房 `PQ6PBY`，这次发布没有打断进行中的对局。
 
+**证据位 E5（发布 `49057d3`：角色卡浮层与开局锁资料）· 已回填 2026-11-06**：
+- 发布对象 `main` @ `49057d3`（`feat(web): 角色卡浮层显示技能效果，开局后锁定个人资料`）。
+- 调用 `serviceInstanceDeployV2(commitSha: "49057d33cfe567be67b91932380220acc59f67b8", …)` → 部署 `97f2772a-6ac0-4219-9eae-1068c658ccc4`；`createdAt 2026-11-06T05:56:39.992Z`、`updatedAt 05:57:10.501Z`（构建 31 秒）后 `SUCCESS`。
+- 版本探针（发布前 → 发布后）：`/sw.js` `salem-v6` → **`salem-v7`**；首页 11269 → **12895 bytes**，新增 `id="roleModal"`、`id="roleImage"`、`id="roleText"`，且 `#selfPanel` 的 title 从「编辑个人资料」改成「查看你的角色卡」；`/app.js` 74510 bytes，含 `function openRoleInfo`、`function selfAbilityLine` 与锁定文案「对局进行中不能改昵称与头像」。
+- 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":88.89}`；`deploy-smoke.mjs` **9/9 通过**（建房 `Q9G2U2`、`wss://` 握手 101）；角色卡牌面 `assets/cards/zh/{mary-warren,thomas-danforth,abigail-williams,cotton-mather,john-proctor}.png` 五个全 200（471–492 KB），说明浮层图片路径在线上可达。
+- 本地真浏览器实拍（390×844，房间 `3755DV`，`docs/acceptance/shots/live-role-info-self.png`、`live-role-info-role.png`）：自己面板在「玛丽·沃伦 · 指控 2 点」下方多出技能行「免疫情侣与黑猫的负面效果。」；点自己面板空白处弹出「你的角色卡 / 玛丽·沃伦 / 技能 / 你 · 存活 · 指控 2 点 · 身份卡 已揭示 0 / 5」并带牌面；点对手座位弹出「机器人1 的角色卡 / 托马斯·丹福斯 / 第 6（或 7）点指控时可翻对方一张身份卡。」；点自己身份卡只开卡详情，`#roleModal` 与 `#profileModal` 都不开——两弹窗互相抢的问题消失。
+
 ## 看日志与排障
 
 - 运行日志在服务 → Logs；客户端连不上的第一件事是看有没有 `salem server listening` 行、有没有进程崩溃栈。
@@ -161,6 +168,7 @@ $env:BASE="http://127.0.0.1:8137"; node apps/server/test/deploy-smoke.mjs
 | README 有一句指向运维文档 | 已加 | `README.md` 文档段 |
 | 冒烟脚本对公网跑通 | 已通过 | 2026-11-06 共跑 4 次（发布后、回滚后、复位后）：每次 9 项全 ok |
 | 发牌确认线与座位资料线已上线 | 已通过 2026-11-06 | 证据位 E4：部署 `e68d9de2-…` / commit `e720751` / 五个前端模块从 404 变 200、`/sw.js` 变 `salem-v6`、冒烟 9/9、真浏览器发牌屏出角色候选 |
+| 角色卡浮层与开局锁资料已上线 | 已通过 2026-11-06 | 证据位 E5：部署 `97f2772a-…` / commit `49057d3` / `/sw.js` 变 `salem-v7`、首页含 `id="roleModal"`、五个角色牌面 200、冒烟 9/9、真浏览器技能行与三种点击实测 |
 
 公网冒烟实测输出（2026-11-06，发布 `3c751ae` 之后立刻跑，`/health` 报 `uptime` 约 19 秒，与发布时刻对齐）：
 
