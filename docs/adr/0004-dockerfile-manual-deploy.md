@@ -14,7 +14,7 @@
 
 **Consequences**
 
-- 每次发布都要有人点 Deploy，并接受"点下去就是全员重连"。
+- 每次发布都要有人动手，并接受"点下去就是全员重连"。面板入口不在 Deployments 页的右上角（那里没有 `Deploy` 按钮），而是服务节点右键 `Latest deploy`，或任一行 `⋮` → `Redeploy`；三个动作的具体点击路径与验证步骤见 `docs/ops/railway-deploy.md`。
 - Dockerfile 与其中的 Node 主版本成为唯一的运行时真相源：本仓既没有 `.nvmrc` / `.node-version`，`apps/server/package.json` 也没有 `engines`，本地按 README 的 Node 24+ 自备，平台侧只认 Dockerfile。
 - `.dockerignore` 必须排除不需要进镜像的素材，否则构建上下文会被 88 MB 的仓库拖慢——`docs/rules` 的规则书 PDF 独占 38.6 MB，另有 `apps/web/.verify` 调试产物与 `node_modules`。
 - 回滚靠 Railway 的历史部署重发上一个镜像，不靠 revert commit；这条路径与仓库历史无关，所以回滚不会把分支搞乱。
