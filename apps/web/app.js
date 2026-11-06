@@ -7,6 +7,17 @@ import {
   errorOutcome,
   rejoinPlan,
 } from "./reconnect.js";
+import {
+  AVATAR_BUDGET_BYTES,
+  AVATAR_DOWNSCALED_TIER,
+  AVATAR_REGULAR_TIER,
+  budgetVerdict,
+  encodingCandidates,
+  estimateDataUrlBytes,
+  isTargetAvatarDataUrl,
+  squareCropRect,
+} from "./avatar-normalize.js";
+import { cleanName, createProfileStore, initialOf } from "./profile-store.js";
 import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE } from "./table-view.js";
 import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
 import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText } from "./reveal-view.js";
@@ -51,6 +62,8 @@ const S = {
   roomGone: false,
   queued: null,
   sent: [],
+  avatars: {},
+  quotaWarned: false,
 };
 // 调试入口：浏览器控制台与联调脚本可直接读当前状态。
 globalThis.__salem = S;
@@ -100,29 +113,6 @@ function seatName(id) {
   if (fromRoom) return fromRoom.name;
   const fromProjection = S.projection?.seats?.find((s) => s.id === id);
   return fromProjection?.name ?? "玩家 " + id;
-}
-
-/** 没有 Intl.Segmenter 的旧浏览器退回按码位切；有就按字素簇切。 */
-const graphemeSegmenter = (() => {
-  try {
-    return typeof Intl?.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
-  } catch {
-    return null;
-  }
-})();
-
-/**
- * 没设头像时显示的首字：取第一个字素簇，国旗、家庭 emoji、带肤色的 emoji 都整颗显示。
- * 旧浏览器拿不到 Intl.Segmenter 时按码位回落，至少不会切出半个码元。
- */
-function initialOf(name) {
-  const text = String(name ?? "").trim();
-  if (!text) return "？";
-  if (graphemeSegmenter) {
-    const first = graphemeSegmenter.segment(text)[Symbol.iterator]().next();
-    if (!first.done) return first.value.segment;
-  }
-  return Array.from(text)[0] ?? "？";
 }
 
 /** data URL → Blob；解析不出来返回 null，由调用方退回 data URL 直出。 */
@@ -187,6 +177,16 @@ function avatarChip(seatId, name) {
   return '<span class="avatar has-image"><img src="' + esc(src) + '" alt="" /></span>';
 }
 
+/** 直接渲染一张 data URL 的 <img>：头像弹层预览用，不经过按座位的 blob 缓存。 */
+function avatarImgHtml(dataUrl) {
+  return '<img src="' + esc(dataUrl) + '" alt="" />';
+}
+
+// 本机的头像是服务端回显之外的乐观更新：弹层里显示的就是马上要发出去的那张图。
+function applyLocalAvatar(seatId, dataUrl) {
+  setAvatar(seatId, dataUrl);
+}
+
 function isSelf(id) {
   return id === S.seatId;
 }
@@ -215,6 +215,9 @@ function connect() {
   S.ws = ws;
   ws.addEventListener("open", () => {
     S.open = true;
+    S.autoJoined = false;
+    // 新连接 = 新的补传机会；同一次连接里 maybeReupload 只会发一次。
+    profileStore.beginConnection();
     // 连上之后先把玩家刚点的动作发出去（房间失效后点「重新开房」时 socket 可能还断着）。
     if (S.queued) {
       const queued = S.queued;
@@ -223,9 +226,15 @@ function connect() {
       send(queued);
       return;
     }
+    const saved = loadSession();
+    if (saved?.code && saved?.token && !S.room) {
+      send({ type: "join", code: saved.code, token: saved.token });
+      S.autoJoined = true;
+      return;
+    }
     // 断线重连也要补发 join：S.room 里留着的是旧房间，不能拿它当守卫，
     // 否则新 socket 连上了却没有房间，页面就一直停在旧房间里空转。
-    const plan = rejoinPlan({ session: loadSession(), leaving: S.leaving, roomGone: S.roomGone });
+    const plan = rejoinPlan({ session: saved, leaving: S.leaving, roomGone: S.roomGone });
     if (!plan) return;
     S.rejoining = true;
     send({ type: "join", code: plan.code, token: plan.token });
@@ -301,6 +310,21 @@ function adoptResync(resync) {
   if (session) saveSession({ ...session, seatId: resync.seatId });
 }
 
+// 本地存储包一层：读失败按「没写过」处理；写失败保持抛出，让 profile-store 判定降级。
+const browserStorage = {
+  getItem(key) {
+    try { return localStorage.getItem(key); } catch { return null; }
+  },
+  setItem(key, value) {
+    localStorage.setItem(key, value);
+  },
+  removeItem(key) {
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  },
+};
+
+const profileStore = createProfileStore(browserStorage, { send: (message) => send(message) });
+
 function handle(msg) {
   if (msg.resync) adoptResync(msg.resync);
   switch (msg.type) {
@@ -308,10 +332,14 @@ function handle(msg) {
       adoptIdentity(msg.seatId, msg.avatars);
       S.rejoining = false;
       saveSession({ code: msg.code, token: msg.token, seatId: msg.seatId });
+      // 服务端没有自己的头像、本机却存着：连上后补一次，重连亦然（服务端同值幂等）。
+      profileStore.maybeReupload({ avatars: msg.avatars ?? {}, seatId: msg.seatId });
       render();
       break;
     case "avatar":
       setAvatar(Number(msg.seatId), msg.dataUrl);
+      // 头像只是一个人的属性，服务端不 sync 房间，得自己重绘，
+      // 这样七处展示面（含移除后的回落）在同一帧里一起换掉。
       render();
       break;
     case "room":
@@ -391,10 +419,12 @@ function renderLobby() {
     if (seat.id === room.hostSeat) tags.push("房主");
     if (seat.id === S.seatId) tags.push("你");
     if (seat.bot) tags.push("机器人");
+    const isMe = seat.id === S.seatId;
     const kick = isHost() && seat.bot
       ? '<button class="seat-kick" data-kick="' + seat.id + '" title="移除机器人">×</button>'
       : "";
-    return '<div class="lobby-seat ' + (seat.ready ? "ready " : "") + (seat.connected ? "" : "offline") + '">' +
+    const profileEntry = isMe ? ' data-profile="self" role="button" tabindex="0" title="编辑个人资料"' : "";
+    return '<div class="lobby-seat ' + (seat.ready ? "ready " : "") + (seat.connected ? "" : "offline") + '"' + profileEntry + ">" +
       avatarChip(seat.id, seat.name) +
       '<div style="min-width:0"><div class="seat-name">' + esc(seat.name) + "</div>" +
       '<div class="seat-sub">' + (tags.join(" · ") || "玩家") + (seat.connected ? "" : " · 离线") + (seat.ready ? " · 已准备" : " · 未准备") + "</div></div>" + kick + "</div>";
@@ -1001,6 +1031,252 @@ function closeModal() {
   S.modalCard = null;
 }
 
+// ---------- 个人资料弹层 ----------
+
+let profileDraft = null;
+
+function loadProfileEntry() {
+  return selfSeat()?.name ?? ($("nameInput").value.trim() || profileStore.readName() || "");
+}
+
+function openProfile() {
+  const name0 = loadProfileEntry();
+  const avatar0 = S.avatars?.[S.seatId] ?? profileStore.readAvatar();
+  profileDraft = { name0, avatar0, avatar: avatar0 };
+  $("profileName").value = name0;
+  $("profileHint").textContent = "";
+  renderProfilePreview();
+  $("profileModal").hidden = false;
+  $("profileName").focus();
+}
+
+function closeProfile() {
+  $("profileModal").hidden = true;
+  // 未保存关闭：丢掉草稿，服务端与本机都保持原样。
+  profileDraft = null;
+  $("profileFile").value = "";
+  $("profileHint").textContent = "";
+}
+
+function renderProfilePreview() {
+  const box = $("profileAvatar");
+  const avatar = profileDraft?.avatar ?? null;
+  if (avatar) {
+    box.innerHTML = avatarImgHtml(avatar);
+    return;
+  }
+  box.textContent = initialOf(cleanName($("profileName").value));
+}
+
+function warnQuotaOnce() {
+  if (S.quotaWarned) return;
+  S.quotaWarned = true;
+  toast("本机存不下这张图，这次先不带头像");
+}
+
+function saveProfile() {
+  const draft = profileDraft;
+  if (!draft) return;
+  const name = cleanName($("profileName").value);
+  const nameChanged = cleanName(draft.name0) !== name;
+  const avatarChanged = draft.avatar !== draft.avatar0;
+  const payload = { type: "profile" };
+  let quotaDegraded = false;
+
+  if (nameChanged) {
+    const written = profileStore.writeName(name);
+    quotaDegraded = quotaDegraded || written.degraded;
+    payload.name = name;
+  }
+
+  if (avatarChanged) {
+    if (draft.avatar === null) {
+      profileStore.removeAvatar();
+      payload.avatar = null;
+    } else {
+      const written = profileStore.writeAvatar(draft.avatar);
+      if (written.ok) {
+        payload.avatar = draft.avatar;
+      } else if (written.degraded) {
+        // 配额失败：降级为「本次无头像」，改名照旧；旧图一并清掉，免得下次又被补传。
+        quotaDegraded = true;
+        profileStore.removeAvatar();
+      } else {
+        $("profileHint").textContent = "这张图片存不下来，点「选择图片」再试一次。";
+        return;
+      }
+    }
+  }
+
+  if (quotaDegraded) warnQuotaOnce();
+
+  const hasChanges = payload.name !== undefined || payload.avatar !== undefined;
+  if (!hasChanges) {
+    closeProfile();
+    return;
+  }
+
+  const canSend = Boolean(S.room) && S.seatId !== null && S.seatId !== undefined;
+  if (!canSend) {
+    $("nameInput").value = name;
+    closeProfile();
+    toast("已存在本机，进房后自动带上", true);
+    return;
+  }
+
+  if (!send(payload)) return;
+  if (payload.avatar !== undefined) applyLocalAvatar(S.seatId, payload.avatar);
+  $("nameInput").value = name;
+  closeProfile();
+  toast("个人资料已更新", true);
+}
+
+// 图片处理：格式拒收 → 解码（优先 createImageBitmap）→ 方形裁切 → 两档编码与体积预算。
+
+function containsAscii(bytes, text) {
+  const codes = Array.from(text, (ch) => ch.charCodeAt(0));
+  outer: for (let i = 0; i + codes.length <= bytes.length; i += 1) {
+    for (let j = 0; j < codes.length; j += 1) {
+      if (bytes[i + j] !== codes[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+function isAnimatedBytes(bytes) {
+  if (bytes.length >= 6) {
+    const head = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]);
+    if (head === "GIF87a" || head === "GIF89a") return true;
+  }
+  // APNG 的 acTL、动图 WebP 的 ANIM/ANMF 块都出现在文件头部附近。
+  return containsAscii(bytes, "acTL") || containsAscii(bytes, "ANIM") || containsAscii(bytes, "ANMF");
+}
+
+async function decodeAvatarSource(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        release: () => bitmap.close?.(),
+      };
+    } catch {
+      // 浏览器不认这个选项或这次解码失败：回退到 Image 元素自己摆正。
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("decode"));
+      el.src = url;
+    });
+    // <img> 与 createImageBitmap 一样按图片自带方向摆正（现代浏览器都会），
+    // 所以这里不再自己读 EXIF 方向：再转一次会把竖拍照片转两遍。
+    const naturalWidth = image.naturalWidth;
+    const naturalHeight = image.naturalHeight;
+    return {
+      source: image,
+      width: naturalWidth,
+      height: naturalHeight,
+      release: () => URL.revokeObjectURL(url),
+    };
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
+}
+
+function encodeAvatarCanvas(canvas, tier) {
+  let over = false;
+  let pngOnly = false;
+  for (const candidate of encodingCandidates(tier)) {
+    const dataUrl = candidate.quality === undefined
+      ? canvas.toDataURL(candidate.mime)
+      : canvas.toDataURL(candidate.mime, candidate.quality);
+    // canvas 对不支持的格式会静默回退 PNG，所以按返回串前缀确认，而不是按请求的 mime。
+    // 服务端只收 WebP / JPEG（规格明确不接受 PNG），拿到 PNG 就说明这个候选作废；
+    // 但如果浏览器对每种格式都只给 PNG，得给玩家一句准确的提示，而不是笼统的「读不出来」。
+    if (!isTargetAvatarDataUrl(dataUrl)) {
+      if (dataUrl.startsWith("data:image/png")) pngOnly = true;
+      continue;
+    }
+    const verdict = budgetVerdict(estimateDataUrlBytes(dataUrl), AVATAR_BUDGET_BYTES);
+    if (!verdict.over) return { ok: true, dataUrl };
+    over = true;
+  }
+  return { ok: false, over, pngOnly };
+}
+
+function renderAvatarTier(decoded, tier) {
+  const crop = squareCropRect(decoded.width, decoded.height);
+  if (!crop.size) return { ok: false, over: false };
+  const canvas = document.createElement("canvas");
+  canvas.width = tier.edge;
+  canvas.height = tier.edge;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { ok: false, over: false };
+  const scale = tier.edge / crop.size;
+  ctx.setTransform(scale, 0, 0, scale, -crop.sx * scale, -crop.sy * scale);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(decoded.source, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return encodeAvatarCanvas(canvas, tier);
+}
+
+async function prepareAvatarFile(file) {
+  if (!file.type || !file.type.startsWith("image/")) {
+    return { ok: false, message: "这不是图片文件。" };
+  }
+  if (file.type === "image/svg+xml") {
+    return { ok: false, message: "不支持 SVG，换一张照片试试。" };
+  }
+  const head = new Uint8Array(await file.slice(0, 8192).arrayBuffer());
+  if (file.type === "image/gif" || isAnimatedBytes(head)) {
+    return { ok: false, message: "不支持动图，换一张静态图片。" };
+  }
+  let decoded;
+  try {
+    decoded = await decodeAvatarSource(file);
+  } catch {
+    return { ok: false, message: "这张图片格式无法读取，试试截图后再选。" };
+  }
+  try {
+    const regular = renderAvatarTier(decoded, AVATAR_REGULAR_TIER);
+    if (regular.ok) return regular;
+    const downscaled = regular.over ? renderAvatarTier(decoded, AVATAR_DOWNSCALED_TIER) : regular;
+    if (downscaled.ok) return downscaled;
+    if (downscaled.over) return { ok: false, message: "这张图片太大了，换一张小一点的图。" };
+    if (downscaled.pngOnly || regular.pngOnly) {
+      return { ok: false, message: "这个浏览器存不出可用的头像格式，换一张图或者换个浏览器试试。" };
+    }
+    return { ok: false, message: "这张图片格式无法读取，试试截图后再选。" };
+  } finally {
+    decoded.release();
+  }
+}
+
+async function onProfileFileChange(event) {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  $("profileHint").textContent = "正在处理图片…";
+  const result = await prepareAvatarFile(file);
+  if (!profileDraft) return;
+  if (!result.ok) {
+    $("profileHint").textContent = result.message;
+    return;
+  }
+  profileDraft.avatar = result.dataUrl;
+  renderProfilePreview();
+  $("profileHint").textContent = "已选好新头像，点「保存」才会同步。";
+}
+
+
 function beginPlay(cardId, asWitness = false, useAbigail = false) {
   if (!myTurn()) { toast("还没轮到你"); return; }
   if (revealLocked()) { toast("先等这次揭示选完位置"); return; }
@@ -1101,6 +1377,7 @@ function resetRoomState() {
   S.dealFlipped = new Set();
   S.dealKey = null;
   closeModal();
+  closeProfile();
   render();
 }
 
@@ -1166,22 +1443,30 @@ function copyInvite() {
 
 function bind() {
   $("createBtn").addEventListener("click", () => {
-    const name = $("nameInput").value.trim();
-    if (!name) { $("landingError").textContent = "请先填一个昵称。"; return; }
+    const raw = $("nameInput").value.trim();
+    if (!raw) { $("landingError").textContent = "请先填一个昵称。"; return; }
+    $("landingError").textContent = "";
+    const name = cleanName(raw);
+    profileStore.writeName(name);
     createRoom(name);
   });
   $("reopenBtn").addEventListener("click", () => {
     hideRoomGonePrompt();
-    const name = $("nameInput").value.trim() || localStorage.getItem("salem.name") || "";
+    const entered = $("nameInput").value.trim() || localStorage.getItem("salem.name") || "";
+    const name = cleanName(entered);
     $("nameInput").value = name;
-    if (!name) { $("landingError").textContent = "请先填一个昵称。"; $("nameInput").focus(); return; }
+    if (!entered) { $("landingError").textContent = "请先填一个昵称。"; $("nameInput").focus(); return; }
+    profileStore.writeName(name);
     createRoom(name);
   });
   $("joinBtn").addEventListener("click", () => {
-    const name = $("nameInput").value.trim();
+    const raw = $("nameInput").value.trim();
     const code = $("codeInput").value.trim().toUpperCase();
-    if (!name) { $("landingError").textContent = "请先填一个昵称。"; return; }
+    if (!raw) { $("landingError").textContent = "请先填一个昵称。"; return; }
     if (code.length !== 6) { $("landingError").textContent = "房码是 6 位。"; return; }
+    $("landingError").textContent = "";
+    const name = cleanName(raw);
+    profileStore.writeName(name);
     landingSubmit({ type: "join", code, name });
   });
   $("codeInput").addEventListener("input", (e) => {
@@ -1195,9 +1480,18 @@ function bind() {
   });
   $("addBotBtn").addEventListener("click", () => send({ type: "add-bot" }));
   $("lobbySeats").addEventListener("click", (event) => {
-    const btn = event.target.closest("[data-kick]");
-    if (!btn || !isHost()) return;
-    send({ type: "kick", seatId: Number(btn.dataset.kick) });
+    const kick = event.target.closest("[data-kick]");
+    if (kick) {
+      if (isHost()) send({ type: "kick", seatId: Number(kick.dataset.kick) });
+      return;
+    }
+    if (event.target.closest("[data-profile]")) openProfile();
+  });
+  $("lobbySeats").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (!event.target.closest("[data-profile]")) return;
+    event.preventDefault();
+    openProfile();
   });
   $("startBtn").addEventListener("click", () => send({ type: "start" }));
   $("applyConfig").addEventListener("click", () => {
@@ -1348,6 +1642,27 @@ function bind() {
     if (S.modalCard) beginPlay(S.modalCard, false, true);
   });
   document.querySelectorAll("[data-close-modal]").forEach((el) => el.addEventListener("click", closeModal));
+  $("openProfileLanding").addEventListener("click", openProfile);
+  $("selfPanel").addEventListener("click", openProfile);
+  $("selfPanel").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openProfile();
+  });
+  $("profilePick").addEventListener("click", () => $("profileFile").click());
+  $("profileFile").addEventListener("change", onProfileFileChange);
+  $("profileRemove").addEventListener("click", () => {
+    if (!profileDraft) return;
+    profileDraft.avatar = null;
+    renderProfilePreview();
+    $("profileHint").textContent = "点「保存」后移除头像。";
+  });
+  $("profileSave").addEventListener("click", saveProfile);
+  $("profileName").addEventListener("input", renderProfilePreview);
+  document.querySelectorAll("[data-close-profile]").forEach((el) => el.addEventListener("click", closeProfile));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("profileModal").hidden) closeProfile();
+  });
   $("nightTargets").addEventListener("click", (event) => {
     const button = event.target.closest("[data-night-target]");
     if (!button) return;
@@ -1402,7 +1717,7 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   const urlCode = (params.get("code") ?? "").toUpperCase();
   if (urlCode) $("codeInput").value = urlCode.slice(0, 6);
-  try { $("nameInput").value = localStorage.getItem("salem.name") ?? ""; } catch { /* ignore */ }
+  $("nameInput").value = profileStore.readName();
   try {
     const res = await fetch("/assets/cards/cards.zh.json", { cache: "force-cache" });
     const data = await res.json();

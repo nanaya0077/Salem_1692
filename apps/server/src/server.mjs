@@ -569,6 +569,7 @@ function addBot(room, seatId) {
     ready: true,
     connected: true,
     bot: true,
+    avatar: null,
     joinedAt: Date.now(),
   };
   room.seats.push(seat);
@@ -656,6 +657,7 @@ function createRoom(ws, name, configInput) {
     ready: true,
     connected: true,
     ws,
+    avatar: null,
     joinedAt: Date.now(),
   };
   const room = {
@@ -737,6 +739,7 @@ function joinRoom(ws, code, name, token) {
     ready: false,
     connected: true,
     ws,
+    avatar: null,
     joinedAt: Date.now(),
   };
   initRoom(room, ws, seat, fresh);

@@ -1,98 +1,115 @@
-/**
- * 头像归一化：只做「决策」，不碰 DOM、不碰 canvas、不发消息。
- *
- * 页面脚本负责解码、画布、文件选择与协议；这个模块只回答四类问题：
- * 1) 从原图里切哪一块方图（{@link cropRect}）；
- * 2) 这次要多少边长、多少质量（{@link AVATAR_TIERS} / {@link tierAt}）；
- * 3) 按什么顺序尝试编码格式（{@link encodingPlan}）；
- * 4) 拿到的 data URL 是不是服务端要的格式、体积是否超预算
- *    （{@link dataUrlMime} / {@link matchesMime} / {@link isTargetDataUrl} / {@link withinBudget}）。
- *
- * 纯函数、无副作用、不 import 任何东西：页面脚本接线之后，浏览器与 `node --test`
- * 跑的是同一份实现（接 app.js 与 service worker 缓存清单属于 #4）。
- */
+// 头像归一化的纯决策模块。
+// 这里只回答「怎么裁、缩到多大、按什么格式与质量编码、超没超体积预算」，
+// 不碰任何浏览器全局：解码、绘制与导出留在页面脚本里，渲染怎么变都不影响这些判断。
+// 所有阈值都是本仓裁决（见 docs/research/avatar-upload-mobile-web-facts.md）。
 
-/** 居中方形裁切：给定原图宽高，返回要切的正方形源矩形；宽高不可用时返回 null。 */
-export function cropRect(width, height) {
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
-  const size = Math.floor(Math.min(width, height));
-  if (size < 1) return null;
-  return {
-    x: Math.floor((width - size) / 2),
-    y: Math.floor((height - size) / 2),
-    size,
-  };
-}
+/** 常规档：256 边长，质量 0.82。 */
+export const AVATAR_REGULAR_TIER = Object.freeze({ edge: 256, quality: 0.82 });
+
+/** 降档档位：160 边长，质量 0.7；两个值都严格小于常规档。 */
+export const AVATAR_DOWNSCALED_TIER = Object.freeze({ edge: 160, quality: 0.7 });
+
+/** 头像体积预算：40KB（解码后字节数，不是 data URL 字符串长度）。 */
+export const AVATAR_BUDGET_BYTES = 40 * 1024;
 
 /**
- * 尺寸档位：先按常规档出图，超预算时按降档重试一次。
- * 降档的边长与质量都必须小于常规档，否则「重试」不会让体积变小。
+ * 目标 data URL 前缀白名单。
+ * 标准允许编码器对不支持的格式静默回退 PNG，所以「请求了 WebP」不等于「拿到了 WebP」，
+ * 必须用返回串前缀校验；PNG 不在此列，它是回落档而不是目标格式。
  */
-export const AVATAR_TIERS = Object.freeze([
-  Object.freeze({ name: "normal", edge: 256, quality: 0.82 }),
-  Object.freeze({ name: "reduced", edge: 160, quality: 0.7 }),
+export const AVATAR_TARGET_MIME_PREFIXES = Object.freeze([
+  "data:image/webp;base64,",
+  "data:image/jpeg;base64,",
 ]);
 
-/** 取第 index 档；index 越界（含负数）返回 null，表示没有下一档可用。 */
-export function tierAt(index) {
-  if (!Number.isInteger(index) || index < 0 || index >= AVATAR_TIERS.length) return null;
-  return AVATAR_TIERS[index];
+const ZERO_RECT = Object.freeze({ sx: 0, sy: 0, size: 0 });
+
+function isPositiveSize(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 /**
- * 编码候选，按尝试顺序排列：WebP → JPEG → PNG。
+ * 居中方形裁切的源矩形。
+ * 正方形取整张；宽>高按高裁并水平居中；高>宽按宽裁并垂直居中。
+ * 宽高为 0 / 非数字 / 非有限值时返回 {sx:0, sy:0, size:0}，让上层能判断「读不出尺寸」。
  *
- * 顺序的理由是「小」与「可验证」：WebP 最省，但标准允许浏览器对不支持的格式
- * 静默返回 PNG，所以拿到结果后必须用 {@link dataUrlMime} / {@link matchesMime}
- * 核对前缀，不匹配才轮到 JPEG；两者都拿不到时才用 PNG，此时体积只能靠上限兜住。
- * PNG 无损，不传质量参数，故 quality 为 null。
+ * @param {number} width 原图宽
+ * @param {number} height 原图高
+ * @returns {{ sx: number, sy: number, size: number }}
  */
-export function encodingPlan(tier) {
-  if (!tier || !Number.isFinite(tier.quality)) throw new TypeError("encodingPlan 需要一档尺寸");
-  return Object.freeze([
-    Object.freeze({ mime: "image/webp", quality: tier.quality }),
-    Object.freeze({ mime: "image/jpeg", quality: tier.quality }),
-    Object.freeze({ mime: "image/png", quality: null }),
-  ]);
-}
-
-/** 服务端只收这两种 data URL；PNG 与其它格式在这里就拦下，不浪费一次消息。 */
-const TARGET_MIME = Object.freeze(["image/webp", "image/jpeg"]);
-
-/**
- * 读出 data URL 自己声称的 MIME（小写）；不是 `data:<mime>;base64,` 形状就返回 null。
- * 形状按服务端逐字接受的前缀来认（`data:image/jpeg;base64,`），带额外参数的一律不认——
- * 那种串发过去也会被服务端拒掉。
- */
-export function dataUrlMime(value) {
-  if (typeof value !== "string") return null;
-  const match = /^data:([a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*);base64,/i.exec(value.trim());
-  return match ? match[1].toLowerCase() : null;
-}
-
-/** 拿到的串是不是这次请求的那种格式：用来抓「请求 WebP、浏览器静默给 PNG」。 */
-export function matchesMime(value, mime) {
-  return typeof mime === "string" && dataUrlMime(value) === mime.toLowerCase();
-}
-
-/** 这个 data URL 能不能发给服务端：只认 WebP 与 JPEG。 */
-export function isTargetDataUrl(value) {
-  return TARGET_MIME.includes(dataUrlMime(value));
-}
-
-/** 体积是否在预算内；恰好等于预算算未超限（上限是闭区间）。 */
-export function withinBudget(bytes, budget) {
-  if (!Number.isFinite(bytes) || !Number.isFinite(budget) || bytes < 0 || budget < 0) return false;
-  return bytes <= budget;
+export function squareCropRect(width, height) {
+  if (!isPositiveSize(width) || !isPositiveSize(height)) return { ...ZERO_RECT };
+  const size = Math.min(width, height);
+  return { sx: (width - size) / 2, sy: (height - size) / 2, size };
 }
 
 /**
- * 一次给出两个答案：是否超限，超限时降到哪一档。
+ * 取目标档位。
  *
- * `tierIndex` 是刚用过的档位序号；`downgradeTo` 为 null 表示降档机会已用完，只能提示换图。
- * 两种 state 要分开读：over=false 是「过了」，over=true 且 downgradeTo=null 是「超限且无档可降」。
+ * @param {boolean} [reduced] 是否已降档
+ * @returns {{ edge: number, quality: number }}
  */
-export function budgetVerdict(bytes, budget, tierIndex) {
-  const over = !withinBudget(bytes, budget);
-  return { over, downgradeTo: over ? tierAt(tierIndex + 1) : null };
+export function tierFor(reduced) {
+  return reduced ? AVATAR_DOWNSCALED_TIER : AVATAR_REGULAR_TIER;
+}
+
+/**
+ * 按序尝试的编码候选：WebP → JPEG → PNG。
+ * 质量取自档位；PNG 忽略质量参数，故不带 quality 字段。
+ * 每次调用返回新数组，调用方改不动共享状态。
+ *
+ * @param {{ edge: number, quality: number }} [tier] 目标档位，默认常规档
+ * @returns {{ mime: string, quality?: number }[]}
+ */
+export function encodingCandidates(tier = AVATAR_REGULAR_TIER) {
+  const quality = tier.quality;
+  return [
+    { mime: "image/webp", quality },
+    { mime: "image/jpeg", quality },
+    { mime: "image/png" },
+  ];
+}
+
+/**
+ * 前缀检查：返回串是否真的是我们要的目标格式（WebP / JPEG）。
+ * PNG 与任何非法串、非字符串都为假。
+ *
+ * @param {unknown} value 编码器返回的 data URL
+ * @returns {boolean}
+ */
+export function isTargetAvatarDataUrl(value) {
+  if (typeof value !== "string") return false;
+  return AVATAR_TARGET_MIME_PREFIXES.some((prefix) => value.startsWith(prefix));
+}
+
+/**
+ * 体积预算判断：恰好等于预算算未超限。
+ * 降档后仍超限的，`needsDownscale` 为假——说明该提示用户换一张，而不是继续降。
+ *
+ * @param {unknown} bytes 解码后字节数
+ * @param {number} [budget] 预算，默认 40KB
+ * @param {boolean} [reduced] 这批字节是否已经是降档后的产物
+ * @returns {{ over: boolean, needsDownscale: boolean }}
+ */
+export function budgetVerdict(bytes, budget = AVATAR_BUDGET_BYTES, reduced = false) {
+  const size = isPositiveSize(bytes) ? bytes : 0;
+  const over = size > budget;
+  return { over, needsDownscale: over && !reduced };
+}
+
+/**
+ * data URL 的字节估算：只看 base64 载荷长度（含尾部 padding 修正），不读真实图片。
+ * 用于在编码后、发送前判断体积；非法输入返回 0。
+ *
+ * @param {unknown} dataUrl
+ * @returns {number}
+ */
+export function estimateDataUrlBytes(dataUrl) {
+  if (typeof dataUrl !== "string") return 0;
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) return 0;
+  const payload = dataUrl.slice(comma + 1);
+  if (payload.length === 0) return 0;
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
 }
