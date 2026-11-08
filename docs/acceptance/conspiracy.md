@@ -75,13 +75,29 @@
 - `conspiracy-accept-12p-after.png`：结算后回到白天，压暗层与印章已撤、手牌与座位恢复。
 - `conspiracy-accept-reduced.png` / `-off.png`：两档降级。
 
+### 9/12 人 pick / 换牌 / 私密（补充证据，2026-11-08）
+
+- `conspiracy-accept-9p-pick.png`、`conspiracy-accept-12p-pick.png`：pick 步（9 人 4 张、12 人 3 张）。
+  12 人这张是在结算退出过渡里抓到的，偏暗/半透明，见缺口 2。
+- `conspiracy-accept-9p-swap.png`、`conspiracy-accept-12p-swap.png`：结算后两张牌背的换牌落位。
+- `conspiracy-accept-9p-private.png`、`conspiracy-accept-12p-private.png`：点自己身份卡打开的
+  `#cardModal`，内容为「平民 / 平民身份卡。」。
+- `conspiracy-accept-9p-frames.mp4`：37 帧 @4fps（9.25s，390×844），cat 等待 16 帧、pick 6 帧、
+  换牌/私密 12 帧。它是**页面帧序列合成**，不是系统级录屏，见缺口 6。
+- 采集脚本：`C:/Users/MSN/ego/salem-conspiracy-fx-20261108-1340/round-9p2.mjs`、
+  `round-12p2.mjs`、`record-9p-staged.mjs`。
+
 ## 四、已知偏差与没能做的
 
 1. **真机未测**：上面所有数字都来自设备指标覆盖，不是物理手机。30fps 判据、触感可感性仍在 #35 名下。
 2. **等待态只捕捉到一瞬**：机器人是即时提交，玩家一提交就凑满结算，所以「已提交，等待其他玩家」的完整等待画面
    在实拍里只有几百毫秒；文案本身由 `apps/web/test/conspiracy-ui.test.js` 的等待态断言覆盖。
+   补充的 `conspiracy-accept-9p-frames.mp4` 在 cat 步刻意停 4 秒，能看到倒计时与等待态；但 12 人 pick 截图
+   仍是结算退出过渡帧（偏暗/半透明）。
 3. **中央阶段大字仍是英文 `conspiracy`**：改前就是英文（`deal` / `dawn` / `night` 同理），本轮没有动它，属全局阶段标题的既有口径。
 4. **首批 7 条音效未重生成**：合成脚本 `scripts/build-audio.mjs` 已入库，但只有本轮新增的 `sfx.conspiracy.start` 是脚本产物，
    其余仍是旧二进制（`--force` 会改听感，需先试听），已在 `docs/research/audio-credits.md` 如实注明。
 5. **牌张守恒只在规则层证**：`soak.test.ts` 的 48 seed 断言牌张守恒；服务端这一层没有独立的「59 张」计数断言，
    靠「每座位身份卡数不变」与终局可收敛间接保证。
+6. **录屏是页面帧序列**：ego 页面在隐藏渲染窗口里，桌面 `gdigrab` 只能抓到前台 DSH 窗口；因此
+   `conspiracy-accept-9p-frames.mp4` 是 4fps 抽样帧合成，不是系统级录屏，节奏也是抽样后的近似。
