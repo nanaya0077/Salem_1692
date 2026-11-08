@@ -16,7 +16,7 @@
 | 服务 | `salem-online` / `bb45b318-2ee6-4448-9063-fd6f36e8d47c` |
 | 环境 | `production` / `2dcec8b2-89bb-4258-a198-46f12a54f21a` |
 | 构建 | `builder: DOCKERFILE`、`dockerfilePath: /Dockerfile` |
-| 构建 commit | 线上现役 `9c5ab94`（不再显示曾为女巫，部署 `136e2e77-…`）；同一环境里还留着 `644d661`（`2540b2aa-…`）、`7f24a3e`（`f2f9eef0-…`）、`33b9e5e`（`4e2cfb93-…`）、`49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）七份可回滚部署 |
+| 构建 commit | 线上现役 `9ff599f`（挂起揭示抽屉线收口，部署 `59b1e5d3-…`，2026-11-08）；此前为 `122dd10`（`5975c6f7-…`）；同一环境里还留着 `9c5ab94`（`136e2e77-…`）、`644d661`（`2540b2aa-…`）、`7f24a3e`（`f2f9eef0-…`）、`33b9e5e`（`4e2cfb93-…`）、`49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）等可回滚部署 |
 | 副本 | `numReplicas: 1` |
 | 区域 | `multiRegionConfig: { asia-southeast1-eqsg3a: { numReplicas: 1 } }`（Singapore 单区） |
 | 健康检查 | `healthcheckPath: /health`，`healthcheckTimeout: 300` 秒 |
@@ -154,6 +154,14 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 - 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":14.76}`；`deploy-smoke.mjs` 全部通过。
 - 依据：`docs/research/salem-1692-card-and-rules-facts.md:301` 记「第二版死亡时公开；第 15 版不公开；服务器始终知道」，本仓库按第 15 版，故只在展示层撤掉，服务端与规则层照旧用该字段判定阵营、黑猫与黎明投票。
 
+**证据位 E9（发布 `9ff599f`：挂起揭示抽屉线收口）· 已回填 2026-11-08**：
+- 发布对象 `main` @ `9ff599fe16bbcb66fcf8cf17d38c9a1dbbbf4bf7`（#63 抽共享抽屉壳、#65 三起因接入、#68 投影补数字、#69 代翻收尾、#64 验收与真实对局实拍之后的提交）；Auto Deploy 仍关闭，走面板会话直调 `serviceInstanceDeployV2`。
+- 调用 `serviceInstanceDeployV2(environmentId: "2dcec8b2-89bb-4258-a198-46f12a54f21a", serviceId: "bb45b318-2ee6-4448-9063-fd6f36e8d47c", commitSha: "9ff599fe16bbcb66fcf8cf17d38c9a1dbbbf4bf7")` → 部署 `59b1e5d3-5ba7-4e4e-8047-280242452ca9`；`BUILDING @13:56:27Z` → `SUCCESS @13:56:34Z`（构建缓存命中，约 7 秒）。
+- 版本探针（发布前 → 发布后）：`/sw.js` `salem-v20` → **`salem-v25`**；首页 13.0 KB 级 → **16486 bytes**；`/reveal-view.js` 200（7638 bytes，旧版 2117 bytes）、`/drawer-shell.js` 200（4038 bytes）、`/conspiracy-view.js` 200（4975 bytes）、`/app.js` 200（103809 bytes）；`/reveal-drawer.js` 404 是正常的——抽屉壳文件叫 `drawer-shell.js`，`app.js` 以模块方式 import，页面里不会出现额外 `<script src>`。
+- 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":10.21}`；`deploy-smoke.mjs` **9/9 通过**（建房 `29CKBT`、`wss://` 握手 101、不存在房码 404）。
+- 真浏览器（390×844，线上）：落地页 → 建房 `MPSD64`（在座 1/12、房主、已准备，开局配置面板「女巫数 1 / 每人身份卡 5」正常）；同页 DOM 探针 `#revealDrawer` 1 个、`#revealVeil` 1 个（class `reveal-veil`）、顶部旧 `#revealBar` **0 个**、抽屉 `hidden: true`——顶栏已被抽屉取代、压暗层已随壳上线。
+- 说明：本条证据的文档提交发生在部署之后，纯文档改动、不会再触发部署；线上镜像对应 `9ff599f`，与本文其余证据的「构建 commit」一致。
+
 ## 看日志与排障
 
 - 运行日志在服务 → Logs；客户端连不上的第一件事是看有没有 `salem server listening` 行、有没有进程崩溃栈。
@@ -195,6 +203,7 @@ $env:BASE="http://127.0.0.1:8137"; node apps/server/test/deploy-smoke.mjs
 | 线下模式已上线（建房勾选后全程无倒计时） | 已通过 2026-11-06 | 证据位 E6：部署 `4e2cfb93-…` / commit `33b9e5e` / `/sw.js` 变 `salem-v8`、首页含 `id="offlineMode"`、冒烟 9/9、真浏览器从建房到白天全程「不限时」 |
 | 身份卡双面翻牌与翻牌全桌横幅已上线 | 已通过 2026-11-06 | 证据位 E7：部署 `2540b2aa-…` / commit `644d661` / `/sw.js` 变 `salem-v10`、首页含 `id="revealBanner"`、冒烟 9/9、真浏览器验证 3D 三态与横幅落在桌面正中且不压顶栏 |
 | 界面不再显示曾为女巫 | 已通过 2026-11-06 | 证据位 E8：部署 `136e2e77-…` / commit `9c5ab94` / `/sw.js` 变 `salem-v11`、线上 `/app.js` 与 `/styles.css` 均查不到该字段与对应样式、冒烟通过 |
+| 挂起揭示抽屉线已上线（指控/嫁祸/诅咒共用底部抽屉） | 已通过 2026-11-08 | 证据位 E9：部署 `59b1e5d3-…` / commit `9ff599f` / `/sw.js` 变 `salem-v25`、`/drawer-shell.js` 与 `/reveal-view.js` 200、线上 DOM 有 `#revealDrawer`/`#revealVeil` 且无旧 `#revealBar`、冒烟 9/9、浏览器建房 `MPSD64` |
 
 公网冒烟实测输出（2026-11-06，发布 `3c751ae` 之后立刻跑，`/health` 报 `uptime` 约 19 秒，与发布时刻对齐）：
 
