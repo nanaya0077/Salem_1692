@@ -65,42 +65,6 @@
     border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:8px 0 12px;box-shadow:0 -20px 50px rgba(0,0,0,.6);z-index:4}
   .handle{width:38px;height:4px;border-radius:2px;background:rgba(255,255,255,.16);margin:4px auto 10px}
 
-  /* B 全屏仪式 */
-  .ritual{position:absolute;inset:0;background:radial-gradient(90% 60% at 50% 40%,#3a1511 0%,#160a08 60%,#090504 100%);overflow:hidden}
-  .ring{position:absolute;inset:0}
-  .rseat{position:absolute;transform:translate(-50%,-50%);border:1px solid rgba(255,255,255,.1);border-radius:9px;
-    padding:3px 5px;background:rgba(20,12,9,.85);font-size:9px;min-width:42px;text-align:center;color:var(--muted)}
-  .rseat.target{border-color:var(--gold);color:var(--ink);box-shadow:0 0 14px rgba(216,179,106,.2)}
-  .rseat .pips{justify-content:center;margin-top:3px}
-  .center{position:absolute;left:50%;top:57%;transform:translate(-50%,-50%);text-align:center;width:100%}
-  .center h1{font-size:24px;margin:6px 0 2px;letter-spacing:.06em}
-  .center .kick{font:10px/1.6 ui-sans-serif;letter-spacing:.22em;color:var(--gold)}
-  .center .hint{font:11px/1.5 ui-sans-serif;color:#b7a58a;margin-top:4px}
-  .fan{height:110px;position:relative;margin:6px auto 0;width:190px}
-  .fan .card{position:absolute;left:50%;top:8px;margin-left:-32px}
-  .fan .card.c0{transform:rotate(-9deg) translateX(-26px)}
-  .fan .card.c1{transform:translateY(-4px)}
-  .fan .card.c2{transform:rotate(9deg) translateX(26px)}
-  .fan.row{display:flex;justify-content:center;align-items:flex-end;gap:5px;width:auto;height:auto;margin-top:10px}
-  .fan.row .card{position:static;margin:0;width:54px;height:80px;transform:none}
-  .ritual-cta{position:absolute;left:0;right:0;bottom:0;padding:10px 12px 14px;background:linear-gradient(180deg,transparent,#160a08 38%,#120806);z-index:2}
-  .ritual-cta .wait{margin:0 0 8px}
-  .ritual-cta .btn{width:100%;margin:0}
-
-  /* C 原位高亮 */
-  .inline{padding:8px 12px 150px}
-  .inline .seat.target{box-shadow:0 0 0 2px var(--gold),0 0 30px rgba(216,179,106,.18)}
-  .chips{display:flex;gap:6px;justify-content:center;margin-top:8px;flex-wrap:wrap}
-  .chip{width:44px;height:60px;border-radius:7px;border:1px solid rgba(216,179,106,.4);background:linear-gradient(150deg,#2a2018,#17100c);
-    display:flex;align-items:center;justify-content:center;color:var(--gold);font:700 12px/1 ui-sans-serif;cursor:pointer;position:relative}
-  .chip.sel{outline:2px solid var(--gold);outline-offset:2px}
-  .floatbar{position:absolute;left:10px;right:10px;bottom:12px;background:rgba(27,19,15,.94);border:1px solid var(--line);
-    border-radius:14px;padding:10px;display:flex;align-items:center;gap:10px;backdrop-filter:blur(6px)}
-  .floatbar .grow{flex:1;min-width:0}
-  .floatbar .t{font-size:12px}
-  .floatbar .s{font-size:10px;color:var(--muted)}
-  .floatbar .btn{width:auto;margin:0;padding:10px 14px;flex:none}
-
   /* 换牌 */
   .exchange{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(8,5,4,.78);z-index:6}
   .fly{display:flex;align-items:center;gap:18px;font-size:12px;color:var(--muted)}
@@ -119,7 +83,7 @@
   .newcard .k{font-size:12px;color:var(--muted)}
   .newcard.revealed .k{color:var(--ink);font-size:15px}
 
-  .variantbar{display:flex;gap:4px;align-items:center;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:#0f0a07;border-top:1px solid rgba(255,255,255,.05);flex:none}
+  .bottombar{display:flex;gap:4px;align-items:center;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:#0f0a07;border-top:1px solid rgba(255,255,255,.05);flex:none}
   .seg{flex:1;border:1px solid transparent;background:transparent;color:#8d7a62;font:11px/1 ui-sans-serif;padding:8px 4px;border-radius:7px;cursor:pointer}
   .seg.on{color:#1a1008;background:var(--gold)}
   .seg.count{flex:0 0 auto;padding:8px 7px}
@@ -133,10 +97,7 @@
 <body>
 <div class="phone">
   <div class="scene" id="scene"></div>
-  <nav class="variantbar" id="bar">
-    <button class="seg" data-variant="sheet">抽屉</button>
-    <button class="seg" data-variant="ritual">仪式</button>
-    <button class="seg" data-variant="inline">原位</button>
+  <nav class="bottombar" id="bar">
     <button class="seg count" data-count="4">4</button>
     <button class="seg count" data-count="9">9</button>
     <button class="seg count" data-count="12">12</button>
@@ -149,7 +110,6 @@
   var qs = new URLSearchParams(location.search);
   var NAMES = ["你","塞缪尔","威廉","蒂图巴","贾尔斯","玛丽","约翰","丽贝卡","科顿","阿比盖尔","乔治","托马斯"];
   var state = {
-    variant: qs.get("variant") || "sheet",
     count: Number(qs.get("count") || 9),
     step: "cat",          // cat | pick | exchanging | done
     waiting: false,
@@ -339,52 +299,6 @@
       '</div>';
   }
 
-  function viewRitual(){
-    var subject = subjectId();
-    var slots = hiddenSlots(subject);
-    var title = state.step === "cat" ? "翻开一张" : "取一张";
-    var sceneEl = document.getElementById("scene");
-    var W = (sceneEl && sceneEl.clientWidth) || 390;
-    var H = (sceneEl && sceneEl.clientHeight) || 768;
-    var cx = W / 2, cy = H * 0.30, r = Math.min(W * 0.27, H * 0.115);
-    var ring = state.seats.map(function(s, i){
-      var a = (-90 + i * 360 / state.count) * Math.PI / 180;
-      var x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
-      var target = (state.step === "cat" && s.id === state.catHolder) || (state.step === "pick" && s.id === leftOf(0));
-      return '<div class="rseat ' + (target ? "target" : "") + '" style="left:' + x + 'px;top:' + y + 'px">' + s.name +
-        '<div class="pips">' + pipsHTML(s, 3) + '</div></div>';
-    }).join("");
-    var cards = slots.map(function(slot, i){
-      return '<div class="card c' + i + ' ' + ((state.step === "cat" ? state.catPick : state.selfPick) === slot ? "sel" : "") + '" data-slot="' + slot + '">' +
-        '<span class="num">' + (i + 1) + '</span><span class="art">✦</span></div>';
-    }).join("");
-    return '<div class="ritual">' + hud() + '<div class="ring">' + ring + '</div>' +
-      '<div class="center"><div class="kick">CONSPIRACY · ' + (state.step === "cat" ? "STEP 1" : "STEP 2") + '</div>' +
-      '<h1>' + title + '</h1><div class="fan ' + (slots.length > 3 ? "row" : "") + '">' + cards + '</div>' +
-      '<div class="hint">' + (state.step === "cat" ? "黑猫在 " + seat(state.catHolder).name + " 面前" : "左邻是 " + seat(leftOf(0)).name) + '</div></div>' +
-      '<div class="ritual-cta">' + waitingHTML() + toastHTML() + submitBtn(state.step === "cat" ? "翻开" : "确认") + '</div></div>';
-  }
-
-  function viewInline(){
-    var subject = subjectId();
-    var slots = hiddenSlots(subject);
-    var title = state.step === "cat" ? "选黑猫持有者一张身份卡" : "选左邻一张身份卡";
-    var chips = slots.map(function(slot, i){
-      return '<div class="chip ' + ((state.step === "cat" ? state.catPick : state.selfPick) === slot ? "sel" : "") + '" data-slot="' + slot + '">' + (i + 1) + '</div>';
-    }).join("");
-    return hud() +
-      '<div class="inline"><div class="title" style="margin:12px 0 6px"><small>' + title + '</small>' +
-      (state.step === "cat" ? "只有你能选" : "选中后公开位置号") + '</div>' +
-      seatRow() +
-      '<div class="chips">' + chips + '</div>' +
-      '<div style="color:#8d7a62;font-size:11px;text-align:center;margin-top:8px">' +
-      (state.step === "cat" ? "黑猫持有者：" + seat(state.catHolder).name : "左邻：" + seat(leftOf(0)).name) + '</div></div>' +
-      '<div class="floatbar"><div class="grow"><div class="t">' + (state.waiting ? "已提交，等待其他人" : "选一张") + '</div>' +
-      '<div class="s">' + state.remaining + 's 后自动取第一张</div></div>' +
-      '<button class="btn" id="submit"' + (state.waiting ? " disabled" : "") + '>' + (state.waiting ? "等待中" : "提交") + '</button></div>' +
-      waitingHTML() + toastHTML();
-  }
-
   function viewExchange(){
     return '<div class="board"><div class="title"><small>CONSPIRACY</small>换牌中…</div>' +
       '<p class="copy">每人从左邻取一张未揭示身份卡，按到达顺序放进自己的身份卡行。</p></div>' +
@@ -407,12 +321,9 @@
     var scene = document.getElementById("scene");
     if (!scene) return;
     var body = state.step === "exchanging" ? viewExchange() :
-      state.step === "done" ? viewDone() :
-      state.variant === "ritual" ? viewRitual() :
-      state.variant === "inline" ? viewInline() : viewSheet();
+      state.step === "done" ? viewDone() : viewSheet();
     var dbg = state.debug ? '<details class="debug" open><summary>projection / events</summary><pre>' +
       JSON.stringify({
-        variant: state.variant,
         step: state.step,
         waiting: state.waiting,
         remaining: state.remaining,
@@ -432,16 +343,9 @@
         events: state.events
       }, null, 2) + '</pre></details>' : "";
     scene.innerHTML = body + dbg;
-    document.querySelectorAll("[data-variant]").forEach(function(b){ b.classList.toggle("on", b.dataset.variant === state.variant); });
     document.querySelectorAll("[data-count]").forEach(function(b){ b.classList.toggle("on", Number(b.dataset.count) === state.count); });
   }
 
-  function setVariant(v){
-    state.variant = v;
-    var q = new URLSearchParams(location.search); q.set("variant", v);
-    history.replaceState(null, "", "?" + q.toString());
-    render();
-  }
   function setCount(n){
     state.count = n;
     var q = new URLSearchParams(location.search); q.set("count", String(n));
@@ -450,9 +354,7 @@
   }
 
   document.addEventListener("click", function(e){
-    var t = e.target.closest("[data-variant]");
-    if (t) { setVariant(t.dataset.variant); return; }
-    t = e.target.closest("[data-count]");
+    var t = e.target.closest("[data-count]");
     if (t) { setCount(Number(t.dataset.count)); return; }
     if (e.target.closest("#debugBtn")) { state.debug = !state.debug; render(); return; }
     if (e.target.closest("#restart")) { reset(); return; }
@@ -468,15 +370,6 @@
       var slot = Number(t.dataset.slot);
       if (state.step === "cat") { state.catPick = slot; render(); }
       else if (state.step === "pick") { state.selfPick = slot; render(); }
-    }
-  });
-  document.addEventListener("keydown", function(e){
-    if (e.target.matches("input,textarea,[contenteditable]")) return;
-    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      var order = ["sheet","ritual","inline"];
-      var i = order.indexOf(state.variant);
-      i = (i + (e.key === "ArrowRight" ? 1 : -1) + order.length) % order.length;
-      setVariant(order[i]);
     }
   });
 
