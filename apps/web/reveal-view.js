@@ -11,6 +11,17 @@
 
 const HIDDEN = "hidden";
 
+/** 三种起因的说法。嫁祸与诅咒没有门槛，标题里就不出现「N 点（门槛 M）」这一段。 */
+const CAUSE_COPY = {
+  accusation: { kicker: "指控成立", verb: "选择要揭示的身份卡" },
+  curse: { kicker: "诅咒", verb: "选择要揭示的身份卡" },
+  scapegoat: { kicker: "嫁祸", verb: "选择要揭示的身份卡" },
+};
+
+function causeCopy(cause) {
+  return CAUSE_COPY[cause] ?? CAUSE_COPY.accusation;
+}
+
 /** 服务端只给位置号：`["hidden", "revealed", ...]` → 位置按钮的展示模型。 */
 export function slotView(slots) {
   if (!Array.isArray(slots)) return [];
@@ -36,6 +47,69 @@ function seatLabel(id, nameOf) {
 export function revealWaitText(wait, nameOf) {
   if (!wait) return "";
   return "等待 " + seatLabel(wait.chooserId, nameOf) + " 选择揭示位置";
+}
+
+/**
+ * 选择者抽屉的标题模型。
+ *
+ * 门槛只对指控有意义：`threshold` 为空（嫁祸、诅咒）时不能写「门槛 0」，
+ * 那是把「没有门槛」说成「门槛是 0」。点数 `total` 来自等待视图里的公开数字，
+ * 选择者本人这边没有，所以调用方可以只在有值时传。
+ */
+export function revealHeading(view, options = {}) {
+  const { nameOf, total } = options;
+  const copy = causeCopy(view?.cause);
+  const target = seatLabel(view?.targetId, nameOf);
+  const threshold = Number.isFinite(view?.threshold) ? view.threshold : null;
+  const points = Number.isFinite(total) ? total : null;
+  const suffix = threshold === null ? "" : " " + (points === null ? "" : points + " 点") +
+    "（门槛 " + threshold + "）";
+  return {
+    kicker: copy.kicker,
+    title: target + " 的身份卡" + suffix,
+    sub: copy.verb + "：选中后再点「选定」，选定前可以改。",
+    note: "超时或托管会自动取第一个未揭示位置。",
+  };
+}
+
+/** 等待者抽屉的标题模型：谁在选、为什么、他还剩多久。 */
+export function revealWaitModel(wait, options = {}) {
+  const { nameOf } = options;
+  if (!wait) return null;
+  const copy = causeCopy(wait.cause);
+  const target = seatLabel(wait.targetId, nameOf);
+  const chooser = seatLabel(wait.chooserId, nameOf);
+  const threshold = Number.isFinite(wait.threshold) ? wait.threshold : null;
+  const total = Number.isFinite(wait.accusationTotal) ? wait.accusationTotal : null;
+  const suffix = threshold === null ? "" : " " + (total === null ? "" : total + " 点") +
+    "（门槛 " + threshold + "）";
+  return {
+    kicker: copy.kicker,
+    title: target + " 的身份卡" + suffix,
+    sub: "由 " + chooser + " 决定翻开哪一张，你只能等结果。",
+    waitText: revealWaitText(wait, nameOf),
+    note: "这期间抽牌、出牌与结束回合都不可用。",
+  };
+}
+
+/** 两步选定的第二步文案：没选就是「选定」，选了就把位置号写进按钮。 */
+export function revealSubmitLabel(pick) {
+  return Number.isInteger(pick) ? "选定（第 " + (pick + 1) + " 张）" : "选定";
+}
+
+/** 再点同一张就取消——提交前允许反悔，不用先点一次空白再选。 */
+export function toggleRevealPick(current, index) {
+  if (!Number.isInteger(index)) return Number.isInteger(current) ? current : null;
+  return current === index ? null : index;
+}
+
+/** 只有选中了一个未揭示位、且还没提交时才让点「选定」。 */
+export function canSubmitReveal(view, pick) {
+  if (!view) return false;
+  if (Number.isInteger(view?.pick)) return false; // 服务端已经记下选择，等揭晓
+  if (!Number.isInteger(pick)) return false;
+  const slot = slotView(view.slots).find((item) => item.index === pick);
+  return Boolean(slot) && !slot.disabled;
 }
 
 /**

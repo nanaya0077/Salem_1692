@@ -144,7 +144,7 @@ test("app.js 接了渲染、提交与倒计时", () => {
 });
 
 test("与挂起揭示条、出牌目标横幅互斥，且阶段内锁手牌", () => {
-  const reveal = bodyOf(app, "function renderRevealBar()");
+  const reveal = bodyOf(app, "function renderRevealDrawer()");
   assert.ok(reveal.includes('S.projection?.phase === "conspiracy"'), "传染期收起揭示条");
   const target = bodyOf(app, "function renderTargetBanner()");
   assert.ok(target.includes('S.projection?.phase === "conspiracy"'), "传染期收起目标横幅");
@@ -182,5 +182,5 @@ test("倒计时变金接在同一处刷新里，样式也留了挂点", () => {
 
 test("新模块进离线壳", () => {
   assert.ok(sw.includes('"/conspiracy-view.js"'), "conspiracy-view.js 必须进 SHELL");
-  assert.match(sw, /const VERSION = "salem-v21"/);
+  assert.match(sw, /const VERSION = "salem-v22"/);
 });

@@ -20,7 +20,7 @@ import {
 import { cleanName, createProfileStore, initialOf } from "./profile-store.js";
 import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE } from "./table-view.js";
 import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
-import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText, revealBannerText } from "./reveal-view.js";
+import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText, revealBannerText, revealHeading, revealWaitModel, revealSubmitLabel, toggleRevealPick, canSubmitReveal } from "./reveal-view.js";
 import {
   CONSPIRACY_SWAP_PHASES,
   canSubmitConspiracy,
@@ -84,6 +84,7 @@ const S = {
   dawnTarget: null,
   deal: null,
   revealWait: null,
+  revealPick: null,
   conspiracyPick: null,
   conspiracyShown: null,
   conspiracyStep: null,
@@ -847,7 +848,7 @@ function renderGame() {
     $("actionBar").innerHTML = "";
   }
 
-  renderRevealBar();
+  renderRevealDrawer();
   renderTargetBanner();
   renderConspiracy();
   renderLog();
@@ -971,52 +972,94 @@ function renderPower() {
 }
 
 /**
- * 挂起揭示的条形区：选择者在这里点位置（丹福斯对普通玩家第 6 点还能放弃），
- * 其他人只看到「等待 X 选择」。位置条按目标面前的身份卡张数渲染，已揭示的位置直接禁用；
- * 揭示一落定服务端就不再发挂起态，整条自己消失。
+ * 挂起揭示的底部抽屉：三种起因（指控 / 诅咒 / 嫁祸）共用一条 UI，壳与传染同一套槽位。
+ * 两步选定——先点位置、再点「选定」；`canDecline` 时露出「放弃」；已提交与旁观走等待槽位。
+ * 时钟读回合剩余（`S.private.turnDeadline`）：揭示挂在当前回合上，不另起 20 秒。
  */
-function renderRevealBar() {
-  const bar = $("revealBar");
-  // 传染阶段独占「要你选点什么」的位置：两条选择条同时出现会让人不知道该点哪一个。
+function renderRevealDrawer() {
+  const bar = $("revealDrawer");
+  // 传染阶段独占「要你选点什么」的位置：两条抽屉同时出现会让人不知道该点哪一个。
   if (S.projection?.phase === "conspiracy") {
-    bar.hidden = true;
-    bar.innerHTML = "";
+    setDrawerOpen(bar, false);
+    S.revealPick = null;
     return;
   }
   const view = S.projection?.pendingReveal ?? null;
-  if (view) {
-    const target = S.projection.seats.find((seat) => seat.id === view.targetId);
-    const trials = target?.trials ?? [];
-    const slots = slotView(view.slots).map((slot) => {
-      const trial = trials[slot.index];
-      const face = slot.revealed ? card(trialFaceCardId(trial?.kind ?? "townspeople")) : null;
-      const image = face && face.image ? face.image : TRIAL_BACK_IMAGE;
-      const caption = slot.revealed ? (face?.name ?? "身份卡") : "#" + (slot.index + 1);
-      return '<button type="button" class="reveal-slot' + (slot.revealed ? " revealed " + trialTone(trial?.kind) : "") +
-        '"' + (slot.disabled ? " disabled" : "") + ' data-reveal-index="' + slot.index +
-        '" aria-label="' + esc(caption) + '">' +
-        (image ? '<img src="/' + esc(image) + '" alt="" loading="lazy" draggable="false" />' : "") +
-        '<span class="reveal-slot-cap">' + esc(caption) + "</span></button>";
-    }).join("");
-    bar.className = "reveal-bar choosing";
-    bar.innerHTML = '<div class="reveal-head"><span class="reveal-title">选择揭示位置：' +
-      esc(seatName(view.targetId)) + " 面前的身份卡</span>" +
-      (canDecline(view) ? '<button type="button" class="btn tiny ghost" data-reveal-decline>放弃</button>' : "") +
-      "</div>" +
-      '<div class="reveal-slots">' + slots + "</div>";
-    bar.hidden = false;
+  if (!view) {
+    const wait = revealWaitModel(S.revealWait, { nameOf: seatName });
+    if (!wait) {
+      setDrawerOpen(bar, false);
+      S.revealPick = null;
+      return;
+    }
+    applyDrawerModel(bar, {
+      kicker: wait.kicker,
+      title: wait.title,
+      sub: wait.sub,
+      cardsHtml: "",
+      cardsHidden: true,
+      waiting: true,
+      waitText: wait.waitText,
+      note: wait.note,
+      declineVisible: false,
+      submitLabel: "选定",
+      submitDisabled: true,
+    });
+    setDrawerOpen(bar, true);
+    updateRevealClock();
     return;
   }
-  const waiting = revealWaitText(S.revealWait, seatName);
-  if (!waiting) {
-    bar.hidden = true;
-    bar.innerHTML = "";
-    return;
-  }
-  bar.className = "reveal-bar waiting";
-  bar.innerHTML = '<div class="reveal-head"><span class="reveal-title">' + esc(waiting) + "</span></div>" +
-    '<p class="reveal-hint">选好位置后目标那张会立刻翻开；这期间抽牌、出牌与结束回合都不可用。</p>';
-  bar.hidden = false;
+  // 服务端已经记下选择就收掉卡片，只留等待环——避免同一张被提交两遍。
+  const submitted = Number.isInteger(view.pick);
+  if (submitted) S.revealPick = view.pick;
+  const picked = submitted ? view.pick : S.revealPick;
+  const total = S.revealWait?.accusationTotal ?? null;
+  const heading = revealHeading(view, { nameOf: seatName, total: total });
+  const trials = S.projection.seats.find((seat) => seat.id === view.targetId)?.trials ?? [];
+  const cardsHtml = slotView(view.slots).map((slot) => {
+    const trial = trials[slot.index];
+    const face = slot.revealed ? card(trialFaceCardId(trial?.kind ?? "townspeople")) : null;
+    const image = face && face.image ? face.image : TRIAL_BACK_IMAGE;
+    const caption = slot.revealed ? (face?.name ?? "身份卡") : "#" + (slot.index + 1);
+    const on = slot.index === picked;
+    const disabled = slot.disabled || submitted;
+    return '<button type="button" class="conspiracy-card' +
+      (slot.revealed ? " revealed " + trialTone(trial?.kind) : "") +
+      (on ? " picked" : "") + '" data-reveal-index="' + slot.index + '"' +
+      (disabled ? " disabled" : "") + ' aria-pressed="' + (on ? "true" : "false") +
+      '" aria-label="' + esc(caption) + '">' +
+      (image ? '<img src="/' + esc(image) + '" alt="" loading="lazy" draggable="false" />' : "") +
+      '<span class="conspiracy-slot">' + esc(caption) + "</span>" +
+      (slot.revealed ? '<span class="conspiracy-tag">已揭示</span>' : "") +
+      "</button>";
+  }).join("");
+  applyDrawerModel(bar, {
+    kicker: heading.kicker,
+    title: heading.title,
+    sub: heading.sub,
+    cardsHtml,
+    cardsHidden: submitted,
+    waiting: submitted,
+    waitText: "已提交，等待结算",
+    note: submitted ? "" : heading.note,
+    declineVisible: !submitted && canDecline(view),
+    submitLabel: revealSubmitLabel(picked),
+    submitDisabled: !canSubmitReveal(view, picked),
+  });
+  setDrawerOpen(bar, true);
+  updateRevealClock();
+}
+
+/** 时钟只写两个槽：每 500ms 跑一次，不重写整份内容。没有回合时限（线下模式）就整块隐藏。 */
+function updateRevealClock() {
+  const bar = $("revealDrawer");
+  if (!bar || bar.hidden) return;
+  const deadline = S.private?.turnDeadline ?? null;
+  const left = deadline ? deadline - Date.now() : null;
+  applyDrawerModel(bar, {
+    clockText: left === null ? "" : Math.max(0, Math.ceil(left / 1000)) + " 秒",
+    clockWarn: left !== null && left <= 5000,
+  });
 }
 
 /**
@@ -1591,6 +1634,7 @@ function updateTimers() {
     S.timerWarnKey = null;
     for (const id of ["dealTimer", "dawnTimer", "nightTimer"]) $(id).textContent = "不限时";
     updateConspiracyClock();
+    updateRevealClock();
     return;
   }
   const myTurnNow = S.projection?.phase === "action" && S.projection.currentPlayerId === S.seatId;
@@ -1611,6 +1655,7 @@ function updateTimers() {
   if (p?.dawn?.deadline) $("dawnTimer").textContent = seconds(p.dawn.deadline) + "s";
   if (p?.night?.deadline) $("nightTimer").textContent = seconds(p.night.deadline) + "s";
   updateConspiracyClock();
+  updateRevealClock();
 }
 
 function openCardModal(cardId) {
@@ -2212,14 +2257,24 @@ function bind() {
     }
     openRoleInfo(S.seatId);
   });
-  $("revealBar").addEventListener("click", (event) => {
-    const decline = event.target.closest("[data-reveal-decline]");
+  // 两步选定：点位置只改选中态，提交走「选定」；再点同一张就取消。
+  $("revealDrawer").addEventListener("click", (event) => {
+    const decline = event.target.closest('[data-slot="decline"]');
     if (decline) { act({ kind: "decline" }); return; }
     const slot = event.target.closest("[data-reveal-index]");
-    if (!slot || slot.disabled) return;
-    const trialIndex = Number(slot.dataset.revealIndex);
-    if (!Number.isInteger(trialIndex)) return;
-    act({ kind: "reveal", trialIndex });
+    if (slot && !slot.disabled) {
+      const index = Number(slot.dataset.revealIndex);
+      if (Number.isInteger(index)) {
+        S.revealPick = toggleRevealPick(S.revealPick, index);
+        renderRevealDrawer();
+      }
+      return;
+    }
+    if (event.target.closest("#revealSubmit")) {
+      const view = S.projection?.pendingReveal ?? null;
+      if (!canSubmitReveal(view, S.revealPick)) return;
+      act({ kind: "reveal", trialIndex: S.revealPick });
+    }
   });
   $("conspiracyCards").addEventListener("click", (event) => {
     const card = event.target.closest("[data-conspiracy-index]");

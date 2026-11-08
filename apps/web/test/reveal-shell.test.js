@@ -12,18 +12,23 @@ const css = readFileSync(join(web, "styles.css"), "utf8");
 const sw = readFileSync(join(web, "sw.js"), "utf8");
 
 // 挂起揭示要有一条自己的条形区：选择者在那儿选位置，其他人看「等待 X 选择」。
-test("壳里有揭示条骨架，且不挡在手牌下面", () => {
-  assert.ok(html.includes('id="revealBar"'), "index.html 缺 #revealBar");
-  const bar = html.indexOf('id="revealBar"');
-  assert.ok(bar > html.indexOf('id="targetBanner"'), "揭示条排在目标条之后");
-  assert.ok(bar < html.indexOf('id="opponents"'), "揭示条在座位区之前，390px 竖屏不用滚动就能看到");
+// 挂起揭示与传染共用同一套底部抽屉：槽位契约在 drawer-shell.js，这里只核揭示侧接上了没有。
+test("壳里有挂起揭示抽屉，且用的是共享槽位", () => {
+  assert.ok(html.includes('id="revealDrawer"'), "index.html 缺 #revealDrawer");
+  const at = html.indexOf('id="revealDrawer"');
+  const slice = html.slice(at, at + 1400);
+  assert.ok(slice.includes('data-slot-root="drawer"'), "抽屉根要标 data-slot-root");
+  for (const name of ["kicker", "clock", "title", "sub", "cards", "waiting", "note", "decline", "submit"]) {
+    assert.ok(slice.includes('data-slot="' + name + '"'), "抽屉缺槽位：" + name);
+  }
+  assert.ok(!html.includes('id="revealBar"'), "旧的顶部揭示条已删，只留一套抽屉");
 });
 
-test("位置条窄屏不溢出、可横向滑动，已揭示位不可点", () => {
-  assert.ok(/\.reveal-bar\b/.test(css), "要有 .reveal-bar 样式");
-  const slots = css.slice(css.indexOf(".reveal-slots"));
-  assert.ok(slots.includes("overflow-x: auto"), "位置条要可横向滑动");
-  assert.ok(/\.reveal-slot\[disabled\]|\.reveal-slot:disabled/.test(css), "已揭示位置要有禁用样式");
+test("抽屉外观复用传染那一套，旧的 reveal-bar 规则已删净", () => {
+  assert.ok(/\.conspiracy-bar\s*\{/.test(css), "抽屉定位与外观来自 .conspiracy-bar");
+  assert.ok(/\.conspiracy-card\s*\{/.test(css), "位置卡复用 .conspiracy-card");
+  assert.ok(!/\.reveal-bar\b/.test(css), ".reveal-bar 已无对应元素，规则应删净");
+  assert.ok(!/\.reveal-slot\b/.test(css), ".reveal-slot 同理");
 });
 
 // 动作走现有 action 通道；挂起语义由规则层 #13 定死。
@@ -43,7 +48,7 @@ test("客户端读顶层 revealWait 与自动揭示记录", () => {
 
 test("离线壳收进新模块并升版本", () => {
   const version = sw.match(/const VERSION = "([^"]+)"/)?.[1];
-  assert.equal(version, "salem-v21", "新模块进壳后 VERSION 必须是当前这一版，旧缓存才会整批作废");
+  assert.equal(version, "salem-v22", "新模块进壳后 VERSION 必须是当前这一版，旧缓存才会整批作废");
   assert.ok(sw.includes('"/reveal-view.js"'), "SHELL 要收 /reveal-view.js");
   const cacheable = sw.slice(sw.indexOf("const cacheable"));
   assert.ok(cacheable.includes('"/reveal-view.js"'), "cacheable 列表也要收 /reveal-view.js");

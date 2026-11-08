@@ -66,6 +66,7 @@ test("槽位清单是这一层的唯一契约", () => {
     "waitText",
     "note",
     "foot",
+    "decline",
     "submit",
   ]);
   assert.equal(new Set(DRAWER_SLOTS).size, DRAWER_SLOTS.length);
@@ -183,18 +184,34 @@ test("开合只认 hidden 属性", () => {
   assert.equal(isDrawerOpen(null), false);
 });
 
-test("index.html 的传染抽屉按契约摆好了全部槽位", async () => {
+test("两个抽屉都按契约摆好槽位（传染没有「放弃」）", async () => {
   const html = await readFile(join(webRoot, "index.html"), "utf8");
-  const bar = html.slice(html.indexOf('id="conspiracyBar"'), html.indexOf('id="conspiracyBar"') + 2000);
-  assert.ok(bar.includes('data-slot-root="drawer"'), "根上要有 data-slot-root 标记");
+  const readSlots = (id) => {
+    const at = html.indexOf('id="' + id + '"');
+    assert.ok(at > 0, "index.html 缺 #" + id);
+    // 抽屉块长度有限（14 个槽 + 一层容器），窗口取窄一点免得吃进下一个面板的槽位。
+    const slice = html.slice(at, at + 1400);
+    return { slice, found: [...slice.matchAll(/data-slot="([^"]+)"/g)].map((m) => m[1]) };
+  };
+  const conspiracy = readSlots("conspiracyBar");
+  const reveal = readSlots("revealDrawer");
 
-  const found = [...bar.matchAll(/data-slot="([^"]+)"/g)].map((m) => m[1]);
   for (const name of DRAWER_SLOTS) {
-    assert.ok(found.includes(name), "index.html 缺槽位：" + name);
+    assert.ok(reveal.found.includes(name), "挂起揭示抽屉缺槽位：" + name);
   }
-  assert.equal(found.length, DRAWER_SLOTS.length, "槽位不该多也不该少");
-  assert.ok(bar.includes('aria-modal="false"'), "抽屉是 dialog 语义，但不吞焦点");
-  assert.ok(bar.includes('role="dialog"'));
+  assert.equal(reveal.found.length, DRAWER_SLOTS.length, "挂起揭示抽屉的槽位不该多也不该少");
+
+  for (const name of DRAWER_SLOTS) {
+    if (name === "decline") continue; // 传染一次点击即提交，没有「放弃」
+    assert.ok(conspiracy.found.includes(name), "传染抽屉缺槽位：" + name);
+  }
+  assert.equal(conspiracy.found.length, DRAWER_SLOTS.length - 1);
+
+  for (const { slice } of [conspiracy, reveal]) {
+    assert.ok(slice.includes('data-slot-root="drawer"'), "根上要有 data-slot-root 标记");
+    assert.ok(slice.includes('aria-modal="false"'), "抽屉是 dialog 语义，但不吞焦点");
+    assert.ok(slice.includes('role="dialog"'));
+  }
 });
 
 test("传染改用壳：不再自己摸标题、副标与卡片的 DOM", async () => {
@@ -226,7 +243,7 @@ test("传染改用壳：不再自己摸标题、副标与卡片的 DOM", async (
 
 test("drawer-shell.js 进壳且版本跟着升", async () => {
   const sw = await readFile(join(webRoot, "sw.js"), "utf8");
-  assert.match(sw, /const VERSION = "salem-v21"/);
+  assert.match(sw, /const VERSION = "salem-v22"/);
   const shell = sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = [")));
   assert.ok(shell.includes('"/drawer-shell.js"'), "预缓存清单要有壳");
   const cacheable = sw.slice(sw.indexOf("const cacheable"));

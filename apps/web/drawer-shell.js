@@ -25,6 +25,7 @@ export const DRAWER_SLOTS = Object.freeze([
   "waitText",
   "note",
   "foot",
+  "decline",
   "submit",
 ]);
 
@@ -84,6 +85,13 @@ export function applyDrawerModel(root, model) {
   if (submit) {
     if (m.submitLabel != null) submit.textContent = String(m.submitLabel);
     if (m.submitDisabled != null) submit.disabled = m.submitDisabled === true;
+  }
+
+  // 「放弃」只有挂起揭示才有：壳只负责显隐与文案，什么时候给得起由规则层（canDecline）说。
+  const decline = drawerSlot(root, "decline");
+  if (decline) {
+    if (m.declineVisible != null) decline.hidden = m.declineVisible !== true;
+    if (m.declineLabel != null) decline.textContent = String(m.declineLabel);
   }
 
   const clock = drawerSlot(root, "clock");

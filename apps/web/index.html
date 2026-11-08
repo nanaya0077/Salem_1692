@@ -102,7 +102,27 @@
         <button id="cancelTarget" class="btn tiny ghost">取消</button>
       </div>
 
-      <div id="revealBar" class="reveal-bar" hidden></div>
+      <!-- 挂起揭示：与传染共用同一套底部抽屉（类名与槽位同源，见 drawer-shell.js），三种起因一条 UI。 -->
+      <div id="revealDrawer" class="conspiracy-bar" role="dialog" aria-modal="false" aria-labelledby="revealTitle" data-slot-root="drawer" hidden>
+        <div class="conspiracy-head" data-slot="head">
+          <span class="conspiracy-kicker" data-slot="kicker"></span>
+          <span id="revealClock" class="conspiracy-clock" data-slot="clock" aria-live="polite"></span>
+          <h2 id="revealTitle" class="conspiracy-title" data-slot="title"></h2>
+          <p id="revealSub" class="conspiracy-sub" data-slot="sub"></p>
+        </div>
+        <div id="revealBody" class="conspiracy-body" data-slot="body">
+          <div id="revealCards" class="conspiracy-cards" data-slot="cards" role="group" aria-label="可选的身份卡"></div>
+          <div id="revealWaiting" class="conspiracy-waiting" data-slot="waiting" hidden>
+            <span class="conspiracy-ring" aria-hidden="true"></span>
+            <span id="revealWaitText" data-slot="waitText"></span>
+          </div>
+        </div>
+        <div class="conspiracy-foot" data-slot="foot">
+          <p id="revealNote" class="conspiracy-note" data-slot="note" role="status"></p>
+          <button id="revealDecline" class="btn ghost" data-slot="decline" type="button" hidden>放弃</button>
+          <button id="revealSubmit" class="btn primary" data-slot="submit" type="button" disabled>选定</button>
+        </div>
+      </div>
 
       <!-- 传染阶段演出层：压暗 + 印章 + 换牌三拍，全部 pointer-events:none，不挡抽屉操作。 -->
       <div id="conspiracyVeil" class="conspiracy-veil" aria-hidden="true"></div>
