@@ -23,7 +23,10 @@ import {
   resolveConfig,
   resolvePendingReveal,
   samuelTake,
+  settleConspiracy,
   startGame,
+  submitCatReveal,
+  submitConspiracyPick,
   titubaReorder,
 } from "../../../packages/rules/src/index.ts";
 
@@ -644,7 +647,51 @@ function applyResult(room, result, actorSeat = null) {
   sync(room);
   // 机器人当选择者时不等人：挂起一落定就替它翻第一张，否则整桌得干等到回合上限（#13）。
   if (room.game?.pendingReveal && botSeat(room, room.game.pendingReveal.chooserId)) resolveAutoReveal(room, "bot-chooser");
+  // 传染阶段还没接选择界面（#57/#58）：先按「每人取第一个候选」走完，不让整桌卡在这里。
+  if (room.game?.phase === "conspiracy" && !room.conspiracySettling) {
+    room.conspiracySettling = true;
+    try {
+      autoPlayConspiracy(room);
+    } finally {
+      room.conspiracySettling = false;
+    }
+  }
   return true;
+}
+
+/**
+ * 传染阶段的临时兜底（#54 只落了规则层状态机）：
+ * 所有选择都取「位置号最小的未揭示卡」，等同于旧版同步自动结算，保证对局不卡死。
+ * #55 接好服务端选择流程后，这段会被真正的人机选择替换。
+ */
+function autoPlayConspiracy(room) {
+  let guard = 0;
+  while (room.game?.phase === "conspiracy" && guard++ < 64) {
+    const phase = room.game.conspiracy;
+    if (!phase) break;
+    if (phase.step === "cat") {
+      const cat = room.game.players[phase.catSeatId];
+      const slot = cat ? cat.trials.findIndex((t) => !t.revealed) : -1;
+      if (slot < 0) break;
+      const res = submitCatReveal(room.game, phase.drawerId, slot);
+      if (!res.ok) break;
+      if (!applyResult(room, res, null)) return;
+      continue;
+    }
+    for (const player of room.game.players) {
+      if (!player.alive) continue;
+      const left = room.game.players[(player.id + 1) % room.game.players.length];
+      if (!left?.alive) continue;
+      const slot = left.trials.findIndex((t) => !t.revealed);
+      if (slot < 0) continue;
+      const res = submitConspiracyPick(room.game, player.id, slot);
+      if (res.ok) room.game = res.state;
+    }
+    const settled = settleConspiracy(room.game);
+    if (!settled.ok) break;
+    applyResult(room, settled, null);
+    return;
+  }
 }
 
 function initRoom(room, ws, seat, token) {

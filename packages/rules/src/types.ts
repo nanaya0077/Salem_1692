@@ -37,7 +37,7 @@ export type RoleId =
   | "william-phipps"
   | "none";
 
-export type Phase = "deal" | "dawn" | "turnStart" | "action" | "night" | "gameOver";
+export type Phase = "deal" | "dawn" | "turnStart" | "action" | "conspiracy" | "night" | "gameOver";
 export type Winner = "town" | "witches" | null;
 
 export interface GameConfig {
@@ -119,6 +119,42 @@ export interface PendingRevealView {
 
 export type RevealCommand = { kind: "reveal"; trialIndex: number } | { kind: "decline" };
 
+/**
+ * 传染阶段：独立子阶段，不复用 `pendingReveal`。
+ * 玩家提交的是**位置号**（相对某个玩家 `trials` 数组的索引），不是卡 id；
+ * 结算前没有任何人会改动 `trials`，所以提交时的索引在结算时仍然指向同一张卡。
+ */
+export interface ConspiracyState {
+  /** 抽到传染的玩家；黑猫揭示由他发起。 */
+  drawerId: number;
+  /** `cat` = 揭示黑猫持有者一张；`pick` = 全体同时从左邻取一张。 */
+  step: "cat" | "pick";
+  /** 黑猫持有者；没有黑猫或持有者免疫时为 null。 */
+  catSeatId: number | null;
+  /** 抽到者对黑猫持有者的选择（位置号）。 */
+  catPick: number | null;
+  /** 选择者 playerId → 位置号。改判时覆盖。 */
+  picks: Record<number, number>;
+  /** 结算完回到哪里（抽牌可能发生在回合内或补抽效果里）。 */
+  returnPhase: Phase;
+  returnPlayerId: number;
+  returnTurn: TurnState;
+}
+
+/** 传染阶段的对外投影：只给位置号与「我是否已提交」，不给卡 id，也不给别人的提交状态。 */
+export interface ConspiracyView {
+  step: "cat" | "pick";
+  drawerId: number;
+  catSeatId: number | null;
+  /** 只反映**本人**是否已提交。 */
+  submitted: boolean;
+  /** 候选位置号，长度 = 被选人当前的身份卡张数。 */
+  candidates: number[];
+  /** 其中已揭示、因此不可选的位置号。 */
+  revealed: number[];
+}
+
+
 export interface TurnState {
   playerId: number;
   actionTaken: boolean;
@@ -152,6 +188,8 @@ export interface GameState {
   night: NightState | null;
   /** 挂起式揭示；null 表示没有等待中的选择。 */
   pendingReveal: PendingReveal | null;
+  /** 传染阶段；null 表示不在这个阶段。deadline 由服务端补，不进 GameState。 */
+  conspiracy: ConspiracyState | null;
   winner: Winner;
   winnerReason: string | null;
   constableId: number | null;
@@ -250,6 +288,8 @@ export interface Projection {
   night: { active: boolean; targetKnown: boolean } | null;
   /** 只有选择者本人收到这个键；其他人的投影里键不存在。 */
   pendingReveal?: PendingRevealView;
+  /** 只有本人在传染阶段涉及选择时收到；其他人没有这个键。 */
+  conspiracy?: ConspiracyView;
 }
 
 export interface ActionOk {

@@ -13,7 +13,10 @@ import {
   project,
   resolveNight,
   resolvePendingReveal,
+  settleConspiracy,
   startGame,
+  submitCatReveal,
+  submitConspiracyPick,
 } from "../src/index.ts";
 import type { CardId, GameState, PlayAction, RoleId } from "../src/types.ts";
 
@@ -164,6 +167,33 @@ function runGame(seed: number): string {
       const result = resolveNight(state, defaultNightChoice(state));
       assert.equal(result.ok, true, "夜间结算");
       if (result.ok) state = result.state;
+      continue;
+    }
+    // 传染阶段现在等玩家出手：这里是假服务端，按「每人取第一个候选」推进。
+    if (state.phase === "conspiracy") {
+      const phase = state.conspiracy!;
+      if (phase.step === "cat") {
+        const cat = state.players[phase.catSeatId!];
+        const slot = cat.trials.findIndex((t) => !t.revealed);
+        assert.equal(slot >= 0, true, "黑猫持有者应有未揭示的卡");
+        const result = submitCatReveal(state, phase.drawerId, slot);
+        assert.equal(result.ok, true, "揭示黑猫持有者");
+        if (result.ok) state = result.state;
+        continue;
+      }
+      for (const player of state.players) {
+        if (!player.alive) continue;
+        const left = state.players[(player.id + 1) % state.players.length];
+        if (!left || !left.alive) continue;
+        const slot = left.trials.findIndex((t) => !t.revealed);
+        if (slot < 0) continue;
+        const picked = submitConspiracyPick(state, player.id, slot);
+        assert.equal(picked.ok, true, "提交传染选择");
+        if (picked.ok) state = picked.state;
+      }
+      const settled = settleConspiracy(state);
+      assert.equal(settled.ok, true, "传染病结算");
+      if (settled.ok) state = settled.state;
       continue;
     }
     if (state.phase !== "action") throw new Error("unexpected phase " + state.phase);

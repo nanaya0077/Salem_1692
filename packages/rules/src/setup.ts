@@ -64,6 +64,7 @@ export function createGame(input: Parameters<typeof resolveConfig>[0], options: 
     turn: { playerId: 0, actionTaken: false, drewThisTurn: 0, cardsPlayed: 0, trialsRevealed: 0, pendingDraws: 0, ending: false, mainDraws: [], gilesEligible: false },
     night: null,
     pendingReveal: null,
+    conspiracy: null,
     winner: null,
     winnerReason: null,
     constableId: null,

@@ -107,6 +107,9 @@ export function cloneState(state: GameState): GameState {
     turn: { ...state.turn },
     night: state.night ? { ...state.night, confessions: state.night.confessions.slice() } : null,
     pendingReveal: state.pendingReveal ? { ...state.pendingReveal } : null,
+    conspiracy: state.conspiracy
+      ? { ...state.conspiracy, picks: { ...state.conspiracy.picks }, returnTurn: { ...state.conspiracy.returnTurn } }
+      : null,
     winner: state.winner,
     winnerReason: state.winnerReason,
     constableId: state.constableId,
@@ -267,7 +270,7 @@ function drawOne(
   }
   events.push({ type: "cardDrawn", playerId: player.id, count: 1 });
   if (cardId === "conspiracy") {
-    resolveConspiracy(state, player.id, events);
+    beginConspiracy(state, player.id, events);
   }
   return state.winner ? "ok" : "ok";
 }
@@ -759,44 +762,139 @@ function startTurnInternal(state: GameState, events: GameEvent[]): void {
   events.push({ type: "turnStarted", playerId: id });
 }
 
-function resolveConspiracy(state: GameState, drawerId: number, events: GameEvent[]): void {
+/** 左邻 = 座位号 +1；左邻已死或没有未揭示的身份卡时返回 null。 */
+function leftOf(state: GameState, playerId: number): number | null {
+  const fromId = (playerId + 1) % state.players.length;
+  const from = state.players[fromId];
+  if (!from || !from.alive) return null;
+  return from.trials.some((t) => !t.revealed) ? fromId : null;
+}
+
+/** 某玩家当前可被选的位置号（未揭示的卡）。 */
+function selectableSlots(state: GameState, subjectId: number | null): number[] {
+  if (subjectId === null || subjectId === undefined) return [];
+  const subject = state.players[subjectId];
+  if (!subject) return [];
+  const out: number[] = [];
+  subject.trials.forEach((t, i) => {
+    if (!t.revealed) out.push(i);
+  });
+  return out;
+}
+
+/**
+ * 进入传染阶段。**只记录状态，不结算**——改判与超时都由服务端驱动，
+ * 规则层不知道时钟，deadline 不进 GameState。
+ * 没有黑猫、或持有者是玛丽·沃伦（免疫）、或持有者已无未揭示的卡时，直接进 pick 子步。
+ */
+function beginConspiracy(state: GameState, drawerId: number, events: GameEvent[]): void {
   events.push({ type: "conspiracyStarted", drawerId });
   const holder = state.players.find((p) => p.alive && p.blue.includes("blackcat"));
-  if (holder && effectiveRole(state, holder.id) !== "mary-warren") {
-    const trial = holder.trials.find((t) => !t.revealed);
-    if (trial) {
-      revealTrial(state, holder.id, drawerId, "conspiracy", events, trial.id);
-      if (state.winner) return;
-    }
-  }
+  const usable = holder && effectiveRole(state, holder.id) !== "mary-warren";
+  const catSeatId = usable && selectableSlots(state, holder.id).length > 0 ? holder.id : null;
+  state.conspiracy = {
+    drawerId,
+    step: catSeatId === null ? "pick" : "cat",
+    catSeatId,
+    catPick: null,
+    picks: {},
+    returnPhase: state.phase,
+    returnPlayerId: state.currentPlayerId,
+    returnTurn: { ...state.turn },
+  };
+  state.phase = "conspiracy";
+}
+
+/** 抽到传染的人揭示黑猫持有者的一张卡；完成后进入 pick 子步。 */
+export function submitCatReveal(state: GameState, playerId: number, trialIndex: number): ActionResult {
+  const phase = state.conspiracy;
+  if (!phase || phase.step !== "cat") return { ok: false, reason: "not-conspiracy-cat" };
+  if (playerId !== phase.drawerId) return { ok: false, reason: "not-drawer" };
+  if (phase.catSeatId === null) return { ok: false, reason: "no-cat" };
+  const target = state.players[phase.catSeatId];
+  const trial = target?.trials[trialIndex];
+  if (!trial) return { ok: false, reason: "trial-not-found" };
+  if (trial.revealed) return { ok: false, reason: "trial-already-revealed" };
+  const next = cloneState(state);
+  const events: GameEvent[] = [];
+  next.conspiracy!.catPick = trialIndex;
+  next.conspiracy!.step = "pick";
+  revealTrial(next, phase.catSeatId, playerId, "conspiracy", events, trial.id);
+  pushEvents(next, events);
+  return { ok: true, state: next, events };
+}
+
+/**
+ * 每个存活玩家同时挑一张左邻的身份卡。
+ * 可改判：以结算前最后一次为准，所以这里只覆盖 `picks[playerId]`，不动别人的。
+ */
+export function submitConspiracyPick(state: GameState, playerId: number, trialIndex: number): ActionResult {
+  const phase = state.conspiracy;
+  if (!phase || phase.step !== "pick") return { ok: false, reason: "not-conspiracy-pick" };
+  const me = state.players[playerId];
+  if (!me || !me.alive) return { ok: false, reason: "player-not-alive" };
+  const fromId = leftOf(state, playerId);
+  if (fromId === null) return { ok: false, reason: "left-not-available" };
+  const trial = state.players[fromId].trials[trialIndex];
+  if (!trial) return { ok: false, reason: "trial-not-found" };
+  if (trial.revealed) return { ok: false, reason: "trial-already-revealed" };
+  const next = cloneState(state);
+  next.conspiracy!.picks[playerId] = trialIndex;
+  return { ok: true, state: next, events: [] };
+}
+
+/**
+ * 结算传染：换牌 → 曾经是女巫 → 无身份卡出局 → 更新 Constable → 胜负 → 回原流程。
+ * 未提交（或提交的位置已失效）的玩家按「位置号最小的未揭示卡」兜底，与规则书一致。
+ * 位置号只在这一刻解析一次，所以换牌过程中数组变动不会串号。
+ */
+export function settleConspiracy(state: GameState): ActionResult {
+  const phase = state.conspiracy;
+  if (!phase) return { ok: false, reason: "not-conspiracy" };
+  const next = cloneState(state);
+  const events: GameEvent[] = [];
   const picks: { to: PlayerState; from: PlayerState; trial: TrialCard }[] = [];
-  for (const to of state.players) {
+  for (const to of next.players) {
     if (!to.alive) continue;
-    const fromId = (to.id + 1) % state.players.length;
-    const from = state.players[fromId];
-    if (!from.alive) continue;
-    const trial = from.trials.find((t) => !t.revealed);
-    if (trial) picks.push({ to, from, trial });
+    const fromId = leftOf(next, to.id);
+    if (fromId === null) continue;
+    const from = next.players[fromId];
+    const chosen = phase.picks[to.id];
+    const slot =
+      typeof chosen === "number" && from.trials[chosen] && !from.trials[chosen].revealed
+        ? chosen
+        : from.trials.findIndex((t) => !t.revealed);
+    if (slot < 0) continue;
+    picks.push({ to, from, trial: from.trials[slot] });
   }
   for (const pick of picks) {
     pick.from.trials = pick.from.trials.filter((t) => t.id !== pick.trial.id);
     pick.to.trials.push({ ...pick.trial, revealed: false });
     events.push({ type: "conspiracySwap", fromId: pick.from.id, toId: pick.to.id });
   }
-  for (const player of state.players) {
+  for (const player of next.players) {
     player.everWitch = player.everWitch || player.trials.some((t) => t.kind === "witch");
   }
   // 规则书未覆盖的边界：存活玩家把最后一张身份卡传给左邻、而自己的左邻已死时，
   // 会没有任何身份卡，也就永远无法再被指控翻牌。按“无身份即出局”处理，避免不死状态。
-  for (const player of state.players.slice()) {
+  for (const player of next.players.slice()) {
     if (player.alive && player.trials.length === 0) {
-      killPlayer(state, player.id, "no-trials", events);
-      if (state.winner) return;
+      killPlayer(next, player.id, "no-trials", events);
+      if (next.winner) break;
     }
   }
-  updateConstable(state);
-  checkWin(state, events);
+  if (!next.winner) updateConstable(next);
+  if (!next.winner) checkWin(next, events);
+  if (!next.winner) {
+    next.phase = phase.returnPhase === "conspiracy" ? "action" : phase.returnPhase;
+    next.currentPlayerId = phase.returnPlayerId;
+    next.turn = { ...phase.returnTurn };
+  }
+  next.conspiracy = null;
+  pushEvents(next, events);
+  return { ok: true, state: next, events };
 }
+
 
 export function confess(state: GameState, playerId: number, trialId?: string, useWilliam = false): ActionResult {
   if (state.phase !== "night" || !state.night || state.night.resolved) return { ok: false, reason: "not-night" };
@@ -1010,6 +1108,31 @@ export function project(state: GameState, viewerId: number): Projection {
     };
     projection.pendingReveal = view;
   }
+  // 传染阶段同样只投给要出手的人：正在选的人拿候选位置号，其他人拿不到这个键。
+  const conspiracy = state.conspiracy;
+  if (conspiracy) {
+    const isCatTurn = conspiracy.step === "cat";
+    const acts = isCatTurn ? conspiracy.drawerId === viewerId : viewer.alive;
+    if (acts) {
+      const subjectId = isCatTurn ? conspiracy.catSeatId : leftOf(state, viewerId);
+      const revealed =
+        subjectId === null
+          ? []
+          : state.players[subjectId].trials.reduce<number[]>((acc, t, i) => {
+              if (t.revealed) acc.push(i);
+              return acc;
+            }, []);
+      projection.conspiracy = {
+        step: conspiracy.step,
+        drawerId: conspiracy.drawerId,
+        catSeatId: conspiracy.catSeatId,
+        submitted:
+          isCatTurn ? conspiracy.catPick !== null : typeof conspiracy.picks[viewerId] === "number",
+        candidates: selectableSlots(state, subjectId),
+        revealed,
+      };
+    }
+  }
   return projection;
 }
 
@@ -1023,9 +1146,66 @@ export function defaultNightChoice(state: GameState): NightChoice {
   };
 }
 
+/**
+ * 测试与脚本用的快捷入口：走完整状态机（进阶段 → 黑猫揭示取第一张 → 全体取第 0 个候选 → 结算）。
+ * 生产路径必须由服务端驱动 submitCatReveal / submitConspiracyPick / settleConspiracy。
+ */
 export function resolveConspiracyForTest(state: GameState, drawerId: number): void {
   const events: GameEvent[] = [];
-  resolveConspiracy(state, drawerId, events);
+  beginConspiracy(state, drawerId, events);
+  let guard = 0;
+  while (state.conspiracy && guard++ < 64) {
+    const phase = state.conspiracy;
+    if (phase.step === "cat") {
+      const slots = selectableSlots(state, phase.catSeatId);
+      if (!slots.length) {
+        phase.step = "pick";
+        continue;
+      }
+      const res = submitCatReveal(state, phase.drawerId, slots[0]);
+      if (!res.ok) break;
+      state.players = res.state.players;
+      state.deck = res.state.deck;
+      state.discard = res.state.discard;
+      state.winner = res.state.winner;
+      state.winnerReason = res.state.winnerReason;
+      state.phase = res.state.phase;
+      state.conspiracy = res.state.conspiracy;
+      state.constableId = res.state.constableId;
+      events.push(...res.events);
+      if (state.winner) break;
+      continue;
+    }
+    for (const player of state.players) {
+      if (!player.alive) continue;
+      const slots = selectableSlots(state, leftOf(state, player.id));
+      if (!slots.length) continue;
+      const res = submitConspiracyPick(state, player.id, slots[0]);
+      if (res.ok) state.conspiracy = res.state.conspiracy;
+    }
+    const settled = settleConspiracy(state);
+    if (!settled.ok) break;
+    state.players = settled.state.players;
+    state.deck = settled.state.deck;
+    state.discard = settled.state.discard;
+    state.winner = settled.state.winner;
+    state.winnerReason = settled.state.winnerReason;
+    state.phase = settled.state.phase;
+    state.currentPlayerId = settled.state.currentPlayerId;
+    state.turn = settled.state.turn;
+    state.conspiracy = settled.state.conspiracy;
+    state.constableId = settled.state.constableId;
+    events.push(...settled.events);
+    break;
+  }
+  if (state.conspiracy) state.conspiracy = null;
+  state.log.push(...events);
+}
+
+/** 测试专用：直接进入传染阶段，跳过「抽到传染」那一步的牌堆操作。 */
+export function beginConspiracyForTest(state: GameState, drawerId: number): void {
+  const events: GameEvent[] = [];
+  beginConspiracy(state, drawerId, events);
   state.log.push(...events);
 }
 
