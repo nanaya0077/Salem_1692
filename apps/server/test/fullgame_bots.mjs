@@ -159,7 +159,12 @@ class BotClient {
     // 新状态覆盖旧动作：夜晚/换人时，旧的定时器不能把过期动作发出去。
     if (this.actionTimer) clearTimeout(this.actionTimer);
     const isDeal = action?.kind === "chooseRole" || action?.kind === "dealAck";
-    const expectedPhase = action?.kind === "dawn" ? "dawn" : action?.kind === "night" ? "night" : isDeal ? "deal" : "action";
+    const expectedPhase =
+      action?.kind === "dawn" ? "dawn"
+      : action?.kind === "night" ? "night"
+      : isDeal ? "deal"
+      : action?.kind === "conspiracyPick" ? "conspiracy"
+      : "action";
     this.actionTimer = setTimeout(() => {
       this.actionTimer = null;
       if (this.closed) return;
@@ -223,6 +228,17 @@ class BotClient {
       if (info.isWitch) payload.targetId = pick(aliveOtherIds(p, this.seatId));
       if (info.isConstable) payload.hammerTargetId = null;
       this.queue(payload);
+      return;
+    }
+
+    // 传染阶段（#55）：所有座位都拿得到视图，但只有该出手的人有候选。
+    // 有候选且还没提交就选第一个；没有候选的人只等别人结算。
+    if (p.phase === "conspiracy") {
+      const view = p.conspiracy;
+      if (!view || view.submitted || !(view.candidates?.length > 0)) return;
+      if (this.lastKey === key) return;
+      this.lastKey = key;
+      this.queue({ kind: "conspiracyPick", trialIndex: view.candidates[0] });
       return;
     }
 

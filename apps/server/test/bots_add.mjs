@@ -67,6 +67,20 @@ const before = projection.currentPlayerId;
 if (before === seatId) {
   ws.send(JSON.stringify({ type: "action", commandId: "draw-host", action: { kind: "draw" } }));
 }
+// 传染阶段（#55）：真人抽到就自己选；机器人那部分服务端会立刻代选。
+const conspiracyDeadline = Date.now() + 10000;
+while (projection.phase === "conspiracy") {
+  const view = projection.conspiracy;
+  if (view && !view.submitted && (view.candidates?.length ?? 0)) {
+    ws.send(JSON.stringify({
+      type: "action",
+      commandId: "cp-" + Date.now(),
+      action: { kind: "conspiracyPick", trialIndex: view.candidates[0] },
+    }));
+  }
+  if (Date.now() > conspiracyDeadline) throw new Error("timeout waiting for conspiracy to settle");
+  await sleep(50);
+}
 await waitFor("turn advances", () => projection.phase === "night" || projection.currentPlayerId !== before, 10000);
 console.log("turn advanced; current", projection.currentPlayerId, "phase", projection.phase);
 assert.equal(errors.length, 0, "no server errors: " + JSON.stringify(errors));

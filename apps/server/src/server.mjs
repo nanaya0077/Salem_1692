@@ -41,6 +41,8 @@ const DEAL_MS = Number(process.env.DEAL_MS || 20000);
 const NIGHT_MS = Number(process.env.NIGHT_MS || 30000);
 const DAWN_MS = Number(process.env.DAWN_MS || 45000);
 const TURN_MS = Number(process.env.TURN_MS || 90000);
+/** 传染阶段每一步（选黑猫持有者的牌 / 全体换牌）各 20 秒；两步各自重新起算（#56）。 */
+const CONSPIRACY_MS = Number(process.env.CONSPIRACY_MS || 20000);
 const GRACE_MS = Number(process.env.GRACE_MS || 60000);
 /** 同一座位的资料写入硬闸：1 秒内只认第一笔，超频静默丢弃。 */
 const PROFILE_GATE_MS = 1000;
@@ -161,6 +163,7 @@ function publicRoom(room) {
     })),
     config: room.config,
     offline: Boolean(room.offline),
+    conspiracyDeadline: room.game?.phase === "conspiracy" ? room.conspiracyDeadline ?? null : null,
     defaults: room.seats.length >= 4 ? defaultConfigFor(room.seats.length) : defaultConfigFor(4),
     minPlayers: 4,
     maxPlayers: 12,
@@ -425,6 +428,128 @@ function armTurnTimer(room) {
 }
 
 /**
+ * 传染阶段计时与托管（#55）。两个屏障各自 20 秒：
+ * step 1 选黑猫持有者的身份卡，step 2 全体同时从左邻取牌；step 1 结算后 step 2 重新起算。
+ * deadline 只活在房间层，规则层不认识时钟（#54 / #56）。
+ */
+function clearConspiracyTimer(room) {
+  clock.cancel(room.conspiracyTimer);
+  room.conspiracyTimer = null;
+  room.conspiracyDeadline = null;
+  room.conspiracyStep = null;
+}
+
+function armConspiracyTimer(room) {
+  clock.cancel(room.conspiracyTimer);
+  room.conspiracyTimer = null;
+  room.conspiracyDeadline = null;
+  const phase = room.game?.conspiracy;
+  if (!room.game || room.game.phase !== "conspiracy" || !phase) {
+    room.conspiracyStep = null;
+    return;
+  }
+  room.conspiracyStep = phase.step;
+  // 线下模式：桌上的人自己掌握节奏，不设倒计时也不兜底（同回合/发牌/夜晚的处理）。
+  if (room.offline) return;
+  room.conspiracyDeadline = clock.now() + CONSPIRACY_MS;
+  room.conspiracyTimer = clock.after(() => {
+    if (!room.game || room.game.phase !== "conspiracy") return;
+    log("conspiracy timeout", room.code, room.game.conspiracy?.step);
+    runConspiracyTimeout(room);
+  }, CONSPIRACY_MS + 500);
+}
+
+/** 只在阶段刚进入或 step 从 cat 切到 pick 时重设，普通提交不 reset（否则每人提交都把 20 秒补满）。 */
+function refreshConspiracyTimer(room) {
+  const phase = room.game?.conspiracy;
+  if (!room.game || room.game.phase !== "conspiracy" || !phase) {
+    clearConspiracyTimer(room);
+    return;
+  }
+  if (room.conspiracyStep !== phase.step) armConspiracyTimer(room);
+}
+
+function conspiracyEligible(game, playerId) {
+  const phase = game?.conspiracy;
+  if (!phase || phase.step !== "pick" || phase.picks[playerId] !== undefined) return false;
+  const player = game.players[playerId];
+  if (!player?.alive) return false;
+  const left = game.players[(playerId + 1) % game.players.length];
+  if (!left?.alive) return false;
+  return left.trials.some((trial) => !trial.revealed);
+}
+
+function botConspiracySeats(room) {
+  const phase = room.game?.conspiracy;
+  if (!phase) return [];
+  if (phase.step === "cat") return botSeat(room, phase.drawerId) ? [phase.drawerId] : [];
+  return room.game.players
+    .filter((player) => botSeat(room, player.id) && conspiracyEligible(room.game, player.id))
+    .map((player) => player.id);
+}
+
+/** 兜底位置：cat 取持有者第一张未揭示；pick 取左邻第一张未揭示（与规则层默认一致）。 */
+function defaultConspiracySlot(game, playerId) {
+  const phase = game?.conspiracy;
+  if (!phase) return -1;
+  if (phase.step === "cat") {
+    if (playerId !== phase.drawerId || phase.catSeatId == null) return -1;
+    return game.players[phase.catSeatId]?.trials.findIndex((trial) => !trial.revealed) ?? -1;
+  }
+  const left = game.players[(playerId + 1) % game.players.length];
+  if (!left?.alive) return -1;
+  return left.trials.findIndex((trial) => !trial.revealed);
+}
+
+function submitConspiracyDefault(room, playerId) {
+  const game = room.game;
+  const phase = game?.conspiracy;
+  if (!phase) return false;
+  const slot = defaultConspiracySlot(game, playerId);
+  if (slot < 0) return false;
+  const result = phase.step === "cat"
+    ? submitCatReveal(game, playerId, slot)
+    : submitConspiracyPick(game, playerId, slot);
+  if (!result.ok) return false;
+  log("auto conspiracy", room.code, phase.step, playerId, slot);
+  const applied = applyResult(room, result, null);
+  if (applied && allConspiracyPicksSubmitted(room.game)) settleConspiracyNow(room);
+  return applied;
+}
+
+function allConspiracyPicksSubmitted(game) {
+  const phase = game?.conspiracy;
+  if (!phase || phase.step !== "pick") return false;
+  return game.players.every((player) => {
+    if (!player.alive) return true;
+    const left = game.players[(player.id + 1) % game.players.length];
+    if (!left?.alive || !left.trials.some((trial) => !trial.revealed)) return true;
+    return phase.picks[player.id] !== undefined;
+  });
+}
+
+function settleConspiracyNow(room) {
+  if (!room.game?.conspiracy) return false;
+  const result = settleConspiracy(room.game);
+  if (!result.ok) return false;
+  return applyResult(room, result, null);
+}
+
+/** 20 秒到期：当前 step 没提交的人一律取默认位置；cat 结算后进入 pick，pick 再等各自的 20 秒。 */
+function runConspiracyTimeout(room) {
+  const phase = room.game?.conspiracy;
+  if (!phase) return;
+  if (phase.step === "cat") {
+    submitConspiracyDefault(room, phase.drawerId);
+    return;
+  }
+  for (const player of room.game.players) {
+    if (conspiracyEligible(room.game, player.id)) submitConspiracyDefault(room, player.id);
+  }
+  if (allConspiracyPicksSubmitted(room.game)) settleConspiracyNow(room);
+}
+
+/**
  * 自动回合的唯一入口：回合计时到期、掉线托管、机器人托管三条路都收敛到这里（#13）。
  * 挂起揭示也只在这里拦一处：先把选择落定，再按落定后的局面继续抽牌或交出回合。
  */
@@ -484,7 +609,12 @@ function botTurnSeat(room) {
 }
 
 function hasBotWork(room) {
-  return pendingBotDeal(room).length > 0 || pendingBotVotes(room).length > 0 || Boolean(botTurnSeat(room));
+  return (
+    pendingBotDeal(room).length > 0 ||
+    pendingBotVotes(room).length > 0 ||
+    botConspiracySeats(room).length > 0 ||
+    Boolean(botTurnSeat(room))
+  );
 }
 
 function scheduleBots(room) {
@@ -534,6 +664,13 @@ function runBotStep(room) {
     const required = nightRequired(room);
     if (required.every((id) => room.nightVotes.has(id))) finalizeNight(room);
     else sync(room);
+    return;
+  }
+  if (room.game?.phase === "conspiracy") {
+    for (const id of botConspiracySeats(room)) {
+      if (room.game?.phase !== "conspiracy") break;
+      submitConspiracyDefault(room, id);
+    }
     return;
   }
   if (botTurnSeat(room)) {
@@ -588,7 +725,10 @@ function addBot(room, seatId) {
 
 function setPhase(room, phase) {
   room.phase = phase;
-  if (phase !== "playing") clearTurnTimer(room);
+  if (phase !== "playing") {
+    clearTurnTimer(room);
+    clearConspiracyTimer(room);
+  }
   if (room.phase !== "night") {
     room.nightVotes = new Map();
     room.nightDeadline = null;
@@ -644,54 +784,11 @@ function applyResult(room, result, actorSeat = null) {
     setPhase(room, "playing");
   }
   armTurnTimer(room);
+  refreshConspiracyTimer(room);
   sync(room);
   // 机器人当选择者时不等人：挂起一落定就替它翻第一张，否则整桌得干等到回合上限（#13）。
   if (room.game?.pendingReveal && botSeat(room, room.game.pendingReveal.chooserId)) resolveAutoReveal(room, "bot-chooser");
-  // 传染阶段还没接选择界面（#57/#58）：先按「每人取第一个候选」走完，不让整桌卡在这里。
-  if (room.game?.phase === "conspiracy" && !room.conspiracySettling) {
-    room.conspiracySettling = true;
-    try {
-      autoPlayConspiracy(room);
-    } finally {
-      room.conspiracySettling = false;
-    }
-  }
   return true;
-}
-
-/**
- * 传染阶段的临时兜底（#54 只落了规则层状态机）：
- * 所有选择都取「位置号最小的未揭示卡」，等同于旧版同步自动结算，保证对局不卡死。
- * #55 接好服务端选择流程后，这段会被真正的人机选择替换。
- */
-function autoPlayConspiracy(room) {
-  let guard = 0;
-  while (room.game?.phase === "conspiracy" && guard++ < 64) {
-    const phase = room.game.conspiracy;
-    if (!phase) break;
-    if (phase.step === "cat") {
-      const cat = room.game.players[phase.catSeatId];
-      const slot = cat ? cat.trials.findIndex((t) => !t.revealed) : -1;
-      if (slot < 0) break;
-      const res = submitCatReveal(room.game, phase.drawerId, slot);
-      if (!res.ok) break;
-      if (!applyResult(room, res, null)) return;
-      continue;
-    }
-    for (const player of room.game.players) {
-      if (!player.alive) continue;
-      const left = room.game.players[(player.id + 1) % room.game.players.length];
-      if (!left?.alive) continue;
-      const slot = left.trials.findIndex((t) => !t.revealed);
-      if (slot < 0) continue;
-      const res = submitConspiracyPick(room.game, player.id, slot);
-      if (res.ok) room.game = res.state;
-    }
-    const settled = settleConspiracy(room.game);
-    if (!settled.ok) break;
-    applyResult(room, settled, null);
-    return;
-  }
 }
 
 function initRoom(room, ws, seat, token) {
@@ -736,6 +833,9 @@ function createRoom(ws, name, configInput) {
     nightVotes: new Map(),
     turnTimer: null,
     turnDeadline: null,
+    conspiracyTimer: null,
+    conspiracyDeadline: null,
+    conspiracyStep: null,
     autoTimers: new Map(),
     botTimer: null,
     createdAt: Date.now(),
@@ -920,6 +1020,11 @@ function startGameFromLobby(room, seatId) {
   }
   room.config = { ...room.game.config };
   room.startedAt = Date.now();
+  // 服务端 e2e 专用：把传染压到牌堆顶，让「抽到即进阶段」可稳定复现。
+  // 只在测试进程设了该环境变量时生效，正常对局不受影响。
+  if (process.env.SALEM_TEST_CONSPIRACY === "1") {
+    room.game.deck = ["conspiracy", ...room.game.deck.filter((id) => id !== "conspiracy")];
+  }
   startDeal(room);
   log("game started", room.code, room.seats.length);
 }
@@ -1154,6 +1259,21 @@ function handleAction(room, seatId, action, commandId) {
     if (action?.kind === "chooseRole") return chooseRoleForSeat(room, seatId, action.roleId);
     if (action?.kind === "dealAck") return ackDeal(room, seatId);
     return sendError(seat.ws, "发牌期间不能行动", "deal-phase");
+  }
+  // 传染阶段只收 conspiracyPick：抽牌/出牌/结束回合都拒绝（#55）。step 由规则层决定，
+  // 服务端只按当前 step 把命令递给对应的提交函数，不自己猜谁能选。
+  if (room.game?.phase === "conspiracy") {
+    if (action?.kind !== "conspiracyPick") return sendError(seat.ws, "传染阶段只能选择身份卡", "conspiracy-phase");
+    const phase = room.game.conspiracy;
+    if (!phase) return sendError(seat.ws, "传染阶段已结束", "conspiracy-phase");
+    const slot = Number(action.trialIndex);
+    const result = phase.step === "cat"
+      ? submitCatReveal(room.game, seatId, slot)
+      : submitConspiracyPick(room.game, seatId, slot);
+    if (!result.ok) return sendError(seat.ws, result.reason || "选择无效", result.reason);
+    applyResult(room, result, seatId);
+    if (room.game?.phase === "conspiracy" && allConspiracyPicksSubmitted(room.game)) settleConspiracyNow(room);
+    return;
   }
   if (action?.kind === "night") return submitNight(room, seatId, action);
   if (action?.kind === "dawn") return submitDawn(room, seatId, action.targetId);

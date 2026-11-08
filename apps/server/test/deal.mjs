@@ -276,6 +276,13 @@ assert.deepEqual(
       // 挂起揭示（#13）：房主自己当选择者时也得先落定，挂起期抽牌/结束回合都会被拒。
       const slot = p.pendingReveal.slots.findIndex((s) => s === "hidden");
       if (slot >= 0) host.act({ kind: "reveal", trialIndex: slot }, "g-reveal-" + p.version);
+    } else if (p?.phase === "conspiracy" && p.conspiracy) {
+      // 传染阶段（#54/#55）：轮到房主出手时取第一个候选；不是他出手就等机器人/对方。
+      const view = p.conspiracy;
+      const slots = view.candidates ?? [];
+      if (!view.submitted && slots.length) {
+        host.act({ kind: "conspiracyPick", trialIndex: slots[0] }, "g-conspiracy-" + p.version + "-" + view.step);
+      }
     } else if (p?.phase === "action" && p.currentPlayerId === host.seatId) {
       const key = [p.version, p.actionTaken, p.self?.hand?.length].join(":");
       if (key !== lastKey) {

@@ -14,6 +14,11 @@ const GROUPS = [
     env: { SALEM_FAKE_CLOCK: "1", DAWN_MS: "4000" },
     scripts: ["smoke.mjs", "lifecycle.mjs", "profile.mjs", "bots_add.mjs", "deal.mjs", "reveal.mjs", "offline.mjs"],
   },
+  {
+    name: "conspiracy",
+    env: { SALEM_FAKE_CLOCK: "1", SALEM_TEST_CONSPIRACY: "1" },
+    scripts: ["conspiracy.mjs"],
+  },
   { name: "real-clock", env: {}, scripts: ["resync.mjs", "fullgame_bots.mjs"] },
 ];
 
