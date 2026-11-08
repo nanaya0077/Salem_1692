@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="zh-CN" data-level="full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17110c">
+  <title>女巫镇 · 第二批动效原型</title>
+  <style>
+    :root {
+      --ink: #f1e6d2;
+      --muted: #b9a98f;
+      --gold: #d8b46a;
+      --red: #c96f63;
+      --panel: #241a12;
+      --line: rgba(216, 180, 106, .28);
+      --fast: 120ms;
+      --base: 220ms;
+      --slow: 375ms;
+      --ease-out: cubic-bezier(.2, 0, 0, 1);
+      --ease-in: cubic-bezier(.4, 0, 1, 1);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #0e0a07; color: var(--ink); }
+    body {
+      font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+      display: grid; place-items: center; padding: 18px;
+      background:
+        radial-gradient(1200px 800px at 70% -10%, #3a2818 0%, transparent 55%),
+        radial-gradient(900px 700px at 0% 100%, #20150d 0%, transparent 60%),
+        #0e0a07;
+    }
+    .shell { width: min(1040px, 100%); display: grid; gap: 14px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 1.05rem; letter-spacing: .12em; font-weight: 600; color: var(--gold); }
+    header p { margin: 0; color: var(--muted); font-size: .78rem; }
+    .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+    .seg button, .ghost {
+      appearance: none; border: 1px solid var(--line); background: rgba(36, 26, 18, .82);
+      color: var(--ink); border-radius: 999px; padding: 7px 12px; font: inherit; font-size: .76rem;
+      cursor: pointer; transition: background var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
+    }
+    .seg button[aria-pressed="true"] { background: var(--gold); color: #1b120a; border-color: var(--gold); }
+    .seg button:active, .ghost:active { transform: scale(.96); }
+    .layout { display: grid; grid-template-columns: 1fr 310px; gap: 18px; align-items: start; }
+    @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
+    .phone {
+      position: relative; width: min(390px, 100%); height: min(844px, 86vh); min-height: 560px;
+      margin: 0 auto; border-radius: 28px; overflow: hidden; border: 1px solid rgba(216, 180, 106, .35);
+      background: #17110c; box-shadow: 0 24px 80px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(255, 255, 255, .03);
+    }
+    .phone::before {
+      content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+      background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.025) 0 1px, transparent 1px 5px);
+      mix-blend-mode: overlay;
+    }
+    .topbar { position: absolute; inset: 0 0 auto; z-index: 8; display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; font-size: .7rem; color: var(--muted); }
+    .topbar b { color: var(--ink); font-weight: 500; }
+    .tabs { position: absolute; top: 42px; left: 14px; right: 14px; z-index: 9; display: flex; gap: 6px; }
+    .tabs button {
+      flex: 1; appearance: none; border: 1px solid var(--line); background: rgba(24, 17, 11, .82);
+      color: var(--muted); border-radius: 8px; padding: 7px 8px; font: inherit; font-size: .72rem; cursor: pointer;
+    }
+    .tabs button[aria-selected="true"] { color: #1b120a; background: var(--gold); border-color: var(--gold); }
+    .scene { position: absolute; inset: 0; display: grid; place-items: center; padding: 82px 18px 90px; opacity: 0; pointer-events: none; transition: opacity var(--base) var(--ease-out); }
+    .scene.active { opacity: 1; pointer-events: auto; }
+    .caption {
+      position: absolute; inset: auto 18px 22px; z-index: 8; margin: 0; padding: 7px 10px;
+      color: #d8c9b0; font-size: .7rem; line-height: 1.7; text-align: center;
+      background: rgba(10, 7, 5, .6); border: 1px solid rgba(216, 180, 106, .14);
+      border-radius: 10px; backdrop-filter: blur(4px);
+    }
+    .caption b { color: var(--gold); font-weight: 500; }
+
+    /* 终局 */
+    .over-stage { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; cursor: pointer; }
+    .curtain {
+      position: absolute; inset: 0; opacity: 0; pointer-events: none;
+      background: radial-gradient(circle at 50% 40%, rgba(48, 24, 16, .55), rgba(6, 4, 3, .94) 68%);
+      transition: opacity 240ms var(--ease-out);
+    }
+    .over-stage[data-step="1"] .curtain,
+    .over-stage[data-step="2"] .curtain,
+    .over-stage[data-step="3"] .curtain,
+    .over-stage[data-step="4"] .curtain { opacity: 1; }
+    .over-content { position: relative; z-index: 2; width: 100%; text-align: center; }
+    .over-kicker, .over-title, .over-reason, .over-seats {
+      opacity: 0; transform: translateY(10px);
+      transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out);
+    }
+    .over-stage[data-step="2"] .over-kicker,
+    .over-stage[data-step="3"] .over-kicker,
+    .over-stage[data-step="4"] .over-kicker,
+    .over-stage[data-step="2"] .over-title,
+    .over-stage[data-step="3"] .over-title,
+    .over-stage[data-step="4"] .over-title { opacity: 1; transform: none; }
+    .over-stage[data-step="3"] .over-reason,
+    .over-stage[data-step="4"] .over-reason { opacity: 1; transform: none; }
+    .over-stage[data-step="4"] .over-seats { opacity: 1; transform: none; }
+    .over-kicker { font-size: .68rem; letter-spacing: .22em; color: var(--gold); }
+    .over-title { margin: 8px 0 0; font-size: 2rem; letter-spacing: .16em; color: #f4dfb4; text-shadow: 0 0 34px rgba(216, 180, 106, .22); }
+    .over-reason { margin: 12px auto 0; max-width: 280px; color: #cbbb9f; font-size: .8rem; line-height: 1.8; }
+    .over-seats { display: grid; gap: 6px; margin: 18px auto 0; max-width: 300px; }
+    .over-seat {
+      display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px;
+      padding: 7px 10px; border: 1px solid rgba(216, 180, 106, .18); border-radius: 9px;
+      background: rgba(28, 20, 14, .74); font-size: .74rem; text-align: left;
+    }
+    .over-seat b { font-weight: 500; color: #eadcc4; }
+    .over-seat .role { color: var(--muted); font-size: .68rem; }
+    .over-seat .alive { color: #b9c9a8; font-size: .66rem; }
+    .over-seat .dead { color: #b9847e; font-size: .66rem; }
+    .over-hint { margin-top: 16px; color: #8f806c; font-size: .66rem; letter-spacing: .08em; }
+
+    /* 指控成立 */
+    .accuse-stage { position: absolute; inset: 0; display: grid; place-items: center; }
+    .accuse-table { position: relative; width: 100%; height: 100%; }
+    .accuse-seat {
+      position: absolute; width: 74px; text-align: center; color: var(--muted); font-size: .68rem;
+      transform: translate(-50%, -50%);
+    }
+    .accuse-seat .orb {
+      width: 46px; height: 46px; margin: 0 auto 6px; border-radius: 50%;
+      display: grid; place-items: center; font-size: 1rem; color: #e7d6b8;
+      border: 1px solid rgba(216, 180, 106, .38); background: rgba(40, 28, 19, .9);
+      transition: border-color 180ms, background 180ms;
+    }
+    .accuse-seat b { display: block; color: #e5d5bc; font-weight: 500; font-size: .7rem; }
+    .accuse-seat .points { display: block; margin-top: 2px; color: #9f8d75; font-size: .64rem; }
+    .accuse-seat.upheld .orb { border-color: var(--gold); background: rgba(92, 66, 30, .95); animation: accuse-pulse 420ms var(--ease-out); }
+    .accuse-seat.settled .orb { border-color: rgba(216, 180, 106, .7); }
+    @keyframes accuse-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(216, 180, 106, .5); }
+      55% { box-shadow: 0 0 0 14px rgba(216, 180, 106, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(216, 180, 106, 0); }
+    }
+    .mini-card { position: absolute; left: 50%; top: 50%; width: 58px; aspect-ratio: 2/3; transform: translate(-50%, -50%); perspective: 600px; opacity: .9; }
+    .mini-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 600ms var(--ease-out); }
+    .mini-card.flipped .mini-inner { transform: rotateY(180deg); }
+    .mini-face { position: absolute; inset: 0; border-radius: 6px; background-size: cover; background-position: center; backface-visibility: hidden; border: 1px solid rgba(216, 180, 106, .45); }
+    .mini-face.back { background-image: url("/assets/cards/zh/back-trial.png"); }
+    .mini-face.front { transform: rotateY(180deg); background-image: url("/assets/cards/zh/witch.png"); }
+    .accuse-result {
+      position: absolute; left: 16px; right: 16px; bottom: 58px; z-index: 3;
+      padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line);
+      background: rgba(24, 17, 11, .92); color: #d8c9b0; font-size: .72rem; line-height: 1.6;
+      opacity: 0; transform: translateY(8px); transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+      pointer-events: none;
+    }
+    .accuse-result.show { opacity: 1; transform: none; }
+    .accuse-result b { color: var(--gold); font-weight: 500; }
+    .accuse-toast {
+      position: absolute; left: 16px; right: 16px; top: 96px; z-index: 4;
+      padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(216, 180, 106, .28);
+      background: rgba(18, 13, 9, .92); color: #cbbb9f; font-size: .68rem; text-align: center;
+      opacity: 0; transform: translateY(-6px); transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
+      pointer-events: none;
+    }
+    .accuse-toast.show { opacity: 1; transform: none; }
+
+    .controls { display: grid; gap: 10px; }
+    .card-panel { border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg, rgba(36,26,18,.9), rgba(18,13,9,.9)); padding: 14px; }
+    .card-panel h3 { margin: 0 0 8px; color: var(--gold); font-size: .78rem; letter-spacing: .12em; font-weight: 500; }
+    .card-panel p { margin: 0 0 12px; color: var(--muted); font-size: .74rem; line-height: 1.7; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row .ghost.primary { border-color: var(--gold); color: #20160d; background: var(--gold); }
+    .note { color: var(--muted); font-size: .68rem; line-height: 1.7; }
+    .note code { color: #dcc39a; }
+
+    /* 三档：reduced 只保留透明度；off 直接落终态 */
+    html[data-level="reduced"] .over-kicker,
+    html[data-level="reduced"] .over-title,
+    html[data-level="reduced"] .over-reason,
+    html[data-level="reduced"] .over-seats { transition: opacity 180ms linear; transform: none; }
+    html[data-level="reduced"] .curtain { transition-duration: 180ms; }
+    html[data-level="reduced"] .accuse-seat.upheld .orb { animation: none; opacity: .65; transition: opacity 180ms linear; }
+    html[data-level="reduced"] .mini-inner { transition: none; }
+    html[data-level="reduced"] .mini-card.flipped .mini-inner { transform: none; }
+    html[data-level="reduced"] .mini-face { backface-visibility: visible; }
+    html[data-level="reduced"] .mini-face.front { transform: none; opacity: 0; transition: opacity 180ms linear; }
+    html[data-level="reduced"] .mini-card.flipped .mini-face.front { opacity: 1; }
+    html[data-level="reduced"] .mini-face.back { transition: opacity 180ms linear; }
+    html[data-level="reduced"] .mini-card.flipped .mini-face.back { opacity: 0; }
+    html[data-level="off"] *, html[data-level="off"] *::after { animation: none !important; transition: none !important; }
+    @media (prefers-reduced-motion: reduce) {
+      html:not([data-level="full"]) * { animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>第二批原型 · 终局揭晓 / 指控成立</h1>
+        <p>390×844 手机框 · 只验节奏 / 强度 / 信息可读性 · 非阻塞，不新增 gate</p>
+      </div>
+      <div class="seg" role="group" aria-label="动效档位">
+        <button type="button" data-level="full" aria-pressed="true">全开</button>
+        <button type="button" data-level="reduced" aria-pressed="false">减弱</button>
+        <button type="button" data-level="off" aria-pressed="false">关</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <div class="phone" id="phone">
+        <div class="topbar"><span>原型 · <b id="sceneName">终局揭晓</b></span><span>1692</span></div>
+        <div class="tabs" role="tablist" aria-label="原型场景">
+          <button type="button" role="tab" id="tabOver" aria-selected="true" data-scene="over">终局揭晓</button>
+          <button type="button" role="tab" id="tabAccuse" aria-selected="false" data-scene="accuse">指控成立</button>
+        </div>
+
+        <section class="scene active" id="sceneOver" aria-label="终局揭晓">
+          <div class="over-stage" id="overStage" data-step="0">
+            <div class="curtain"></div>
+            <div class="over-content">
+              <div class="over-kicker">1692 · 牌局落幕</div>
+              <h2 class="over-title" id="overTitle">女巫获胜</h2>
+              <p class="over-reason" id="overReason">场上平民人数已不足以阻止女巫。</p>
+              <div class="over-seats" id="overSeats"></div>
+              <div class="over-hint">已公开信息 · 不翻未揭示身份卡</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="scene" id="sceneAccuse" aria-label="指控成立">
+          <div class="accuse-stage">
+            <div class="accuse-table" id="accuseTable">
+              <div class="mini-card" id="accuseCard" aria-hidden="true">
+                <div class="mini-inner">
+                  <div class="mini-face back"></div>
+                  <div class="mini-face front"></div>
+                </div>
+              </div>
+            </div>
+            <div class="accuse-toast" id="accuseToast" role="status"></div>
+            <div class="accuse-result" id="accuseResult" role="status" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <p class="caption" id="caption"><b>终局 240 / 400 / 300 / 280ms</b> · 总 ≤2000ms · 不新增 block · 任意点击直接落终态</p>
+      </div>
+
+      <aside class="controls">
+        <div class="card-panel">
+          <h3>1 · 终局揭晓</h3>
+          <p>四段：幕落 240 → 胜负 400 → 原因 300 → 座位表 280ms。没有跳过语义：按钮一直可点，播放中任意点击直接落终态。</p>
+          <div class="row">
+            <button class="ghost primary" id="overPlay" type="button">播放终局</button>
+            <button class="ghost" id="overFinish" type="button">直接落终态</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="ghost" id="overWitch" type="button">女巫胜</button>
+            <button class="ghost" id="overTown" type="button">平民胜</button>
+          </div>
+        </div>
+        <div class="card-panel">
+          <h3>2 · 指控成立</h3>
+          <p>420ms 金色脉冲，最多 3 个座位同时亮；第 4 个起合并成一条 toast。非阻塞，与翻牌并行，不新增跳过。</p>
+          <div class="row">
+            <button class="ghost" id="accuse1" type="button">1 人</button>
+            <button class="ghost" id="accuse3" type="button">3 人</button>
+            <button class="ghost primary" id="accuse5" type="button">5 人（溢出）</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="ghost" id="accuseReset" type="button">复位</button>
+          </div>
+        </div>
+        <div class="card-panel">
+          <h3>怎么判断</h3>
+          <p class="note">
+            终局：四段是否读得完、座位表是否抢戏、女巫胜时有没有“逐条举证”的误导。<br>
+            指控：420ms 是否看清谁被坐实、3 人以上合并后是否还知道总数；翻牌同时进行时会不会互相抢。
+          </p>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script type="module">
+    const $ = (id) => document.getElementById(id);
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+    let level = localStorage.getItem("salem.motion") || (reduce.matches ? "reduced" : "full");
+    if (!["full", "reduced", "off"].includes(level)) level = "full";
+    let scene = "over";
+    let overTimers = [];
+    let accuseTimers = [];
+    let winner = "witch";
+
+    const seats = [
+      { name: "约翰", role: "平民", alive: true, x: 26, y: 24, points: 0 },
+      { name: "玛丽", role: "女巫", alive: false, x: 74, y: 24, points: 0 },
+      { name: "乔治", role: "平民", alive: true, x: 16, y: 66, points: 0 },
+      { name: "阿比盖尔", role: "平民", alive: false, x: 50, y: 78, points: 0 },
+      { name: "科顿", role: "平民", alive: true, x: 84, y: 66, points: 0 }
+    ];
+
+    function applyLevel(next) {
+      level = next;
+      localStorage.setItem("salem.motion", level);
+      document.documentElement.dataset.level = level;
+      document.querySelectorAll("[data-level]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.level === level)));
+      if (level === "off") { finishOver(); renderAccuseResult(0); }
+    }
+    document.querySelectorAll("[data-level]").forEach((b) => b.addEventListener("click", () => applyLevel(b.dataset.level)));
+    applyLevel(level);
+
+    function clearOverTimers() {
+      overTimers.forEach(clearTimeout);
+      overTimers = [];
+    }
+
+    function buildOverSeats() {
+      $("overSeats").innerHTML = seats.map((s) => `
+        <div class="over-seat">
+          <b>${s.name}</b>
+          <span class="role">${s.role}</span>
+          <span class="${s.alive ? "alive" : "dead"}">${s.alive ? "存活" : "出局"}</span>
+        </div>`).join("");
+    }
+
+    function setOverCopy() {
+      const witch = winner === "witch";
+      $("overTitle").textContent = witch ? "女巫获胜" : "平民获胜";
+      $("overReason").textContent = witch
+        ? "场上平民人数已不足以阻止女巫。"
+        : "女巫已被投票放逐，牌局结束。";
+    }
+
+    function switchScene(next) {
+      scene = next;
+      clearOverTimers();
+      clearAccuseTimers();
+      document.querySelectorAll(".scene").forEach((s) => s.classList.toggle("active", s.id === (next === "over" ? "sceneOver" : "sceneAccuse")));
+      document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.scene === next)));
+      $("sceneName").textContent = next === "over" ? "终局揭晓" : "指控成立";
+      $("caption").innerHTML = next === "over"
+        ? "<b>终局 240 / 400 / 300 / 280ms</b> · 总 ≤2000ms · 不新增 block · 任意点击直接落终态"
+        : "<b>指控成立 420ms</b> · 非阻塞 · 最多 3 席同时 · 超出合并 toast · 无跳过";
+      history.replaceState(null, "", "#" + next);
+      if (next === "over") startOver(); else resetAccuse();
+    }
+
+    function startOver() {
+      clearOverTimers();
+      setOverCopy();
+      buildOverSeats();
+      const stage = $("overStage");
+      stage.dataset.step = "0";
+      if (level === "off") { stage.dataset.step = "4"; return; }
+      const timeline = level === "reduced"
+        ? [[0, "1"], [120, "2"], [260, "3"], [420, "4"]]
+        : [[0, "1"], [240, "2"], [640, "3"], [940, "4"]];
+      timeline.forEach(([t, step]) => overTimers.push(setTimeout(() => { stage.dataset.step = step; }, t)));
+    }
+
+    function finishOver() {
+      clearOverTimers();
+      $("overStage").dataset.step = "4";
+    }
+
+    function clearAccuseTimers() {
+      accuseTimers.forEach(clearTimeout);
+      accuseTimers = [];
+    }
+
+    function buildAccuseTable() {
+      const table = $("accuseTable");
+      table.querySelectorAll(".accuse-seat").forEach((n) => n.remove());
+      seats.forEach((s, i) => {
+        const el = document.createElement("div");
+        el.className = "accuse-seat";
+        el.dataset.index = String(i);
+        el.style.left = s.x + "%";
+        el.style.top = s.y + "%";
+        el.innerHTML = `<div class="orb">${s.name.slice(0, 1)}</div><b>${s.name}</b><span class="points">指控 ${s.points} 点</span>`;
+        table.appendChild(el);
+      });
+    }
+
+    function resetAccuse() {
+      clearAccuseTimers();
+      seats.forEach((s) => { s.points = 0; });
+      buildAccuseTable();
+      $("accuseCard").classList.remove("flipped");
+      $("accuseToast").className = "accuse-toast";
+      $("accuseResult").className = "accuse-result";
+      $("accuseResult").textContent = "";
+    }
+
+    function renderAccuseResult(count) {
+      if (!count) { $("accuseResult").className = "accuse-result"; return; }
+      const names = seats.slice(0, count).map((s) => s.name);
+      $("accuseResult").innerHTML = `<b>指控成立</b> · ${names.slice(0, 3).join("、")}${count > 3 ? ` 等 ${count} 人` : ""}`;
+      $("accuseResult").classList.add("show");
+    }
+
+    function playAccuse(count) {
+      clearAccuseTimers();
+      resetAccuse();
+      const list = seats.slice(0, count);
+      list.forEach((s) => { s.points += 1; });
+      buildAccuseTable();
+      const nodes = [...$("accuseTable").querySelectorAll(".accuse-seat")];
+      nodes.slice(0, Math.min(3, count)).forEach((n) => n.classList.add("upheld"));
+      $("accuseCard").classList.add("flipped");
+      if (count > 3) {
+        $("accuseToast").textContent = `另有 ${count - 3} 人被指控，已合并展示`;
+        $("accuseToast").classList.add("show");
+      }
+      renderAccuseResult(count);
+      const duration = level === "off" ? 0 : (level === "reduced" ? 180 : 420);
+      accuseTimers.push(setTimeout(() => {
+        $("accuseToast").classList.remove("show");
+        nodes.forEach((n) => { n.classList.remove("upheld"); n.classList.add("settled"); });
+      }, duration));
+    }
+
+    $("overPlay").addEventListener("click", startOver);
+    $("overFinish").addEventListener("click", finishOver);
+    $("overWitch").addEventListener("click", () => { winner = "witch"; startOver(); });
+    $("overTown").addEventListener("click", () => { winner = "town"; startOver(); });
+    $("overStage").addEventListener("pointerdown", () => {
+      if ($("overStage").dataset.step !== "4") finishOver();
+    });
+    $("accuse1").addEventListener("click", () => playAccuse(1));
+    $("accuse3").addEventListener("click", () => playAccuse(3));
+    $("accuse5").addEventListener("click", () => playAccuse(5));
+    $("accuseReset").addEventListener("click", resetAccuse);
+    document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => switchScene(b.dataset.scene)));
+    $("accuseCard").addEventListener("pointerdown", (e) => e.stopPropagation());
+
+    buildOverSeats();
+    setOverCopy();
+    switchScene(location.hash === "#accuse" ? "accuse" : "over");
+  </script>
+</body>
+</html>

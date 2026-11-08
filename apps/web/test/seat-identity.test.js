@@ -57,7 +57,7 @@ test("服务端把 resync 挂进同一条 room / projection，而不是另发一
 test("界面不显示某人是否曾为女巫", () => {
   const css = readFileSync(join(here, "..", "styles.css"), "utf8");
   assert.ok(!app.includes("曾为女巫"), "座位卡不该再挂「曾为女巫」小字");
-  const over = bodyOf(app, "function renderOver() ");
+  const over = bodyOf(app, "function renderOver(");
   assert.ok(!over.includes("everWitch"), "结束面板不该按曾为女巫加任何标记");
   assert.ok(!/\.over-role\.witch\b/.test(css), "已不再生成的 witch 样式要一起删掉");
 });

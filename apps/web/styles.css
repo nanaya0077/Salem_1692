@@ -194,6 +194,18 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
   border: 1px solid var(--line); position: relative;
 }
 .seat-card.me { border-color: rgba(216,169,76,.5); }
+.seat-card.accuse-upheld::after,
+.self-panel.accuse-upheld::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 16px;
+  border: 2px solid var(--gold); pointer-events: none;
+  animation: fx-accuse-upheld 420ms ease-out both;
+}
+@keyframes fx-accuse-upheld {
+  0% { opacity: 0; transform: scale(.94); }
+  22% { opacity: 1; transform: scale(1); }
+  68% { opacity: .95; transform: scale(1.02); }
+  100% { opacity: 0; transform: scale(1.05); }
+}
 .seat-card.dead { opacity: .45; filter: grayscale(.6); }
 .seat-card.selectable { border-color: rgba(241,203,122,.65); box-shadow: 0 0 0 2px rgba(216,169,76,.14); }
 .seat-card .avatar { width: 28px; height: 28px; font-size: 13px; margin-bottom: 6px; }
@@ -222,7 +234,7 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 }
 .phase-text { font-family: var(--serif); letter-spacing: .16em; color: var(--parchment); font-size: 15px; margin-top: -8px; }
 .center-hint { color: var(--muted); font-size: 12px; margin-top: 5px; max-width: 82%; line-height: 1.5; }
-.self-panel { flex: none; display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 14px; background: rgba(40,28,22,.72); border: 1px solid var(--line); }
+.self-panel { flex: none; position: relative; display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 14px; background: rgba(40,28,22,.72); border: 1px solid var(--line); }
 .self-panel .avatar { width: 36px; height: 36px; }
 .self-main { flex: 1; min-width: 0; }
 .self-name { font-size: 13px; font-weight: 700; }
@@ -432,6 +444,13 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 [data-motion="reduced"] .overlay.night .overlay-card,
 [data-motion="reduced"] .overlay.dawn .overlay-card { animation: fx-fade-in 200ms ease both; }
 [data-motion="reduced"] .night-sky::before { animation: none; }
+[data-motion="reduced"] .seat-card.accuse-upheld::after,
+[data-motion="reduced"] .self-panel.accuse-upheld::after { animation: fx-accuse-fade 180ms ease-out both; }
+@keyframes fx-accuse-fade {
+  from { opacity: 0; }
+  35% { opacity: 1; }
+  to { opacity: 0; }
+}
 [data-motion="reduced"] .death-veil.show .death-card { animation: fx-fade-in 200ms ease both; }
 [data-motion="reduced"] .trial-card .trial-inner { transition: none; }
 [data-motion="reduced"] .trial-card.flip-in .trial-inner { animation: fx-fade-in 200ms ease both; }
@@ -444,11 +463,15 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 [data-motion="off"] .death-veil.show .death-card,
 [data-motion="off"] .trial-card.flip-in .trial-inner { animation: none; opacity: 1; }
 [data-motion="off"] .night-sky::before { animation: none; }
+[data-motion="off"] .seat-card.accuse-upheld::after,
+[data-motion="off"] .self-panel.accuse-upheld::after { animation: none; content: none; }
 [data-motion="off"] .trial-card .trial-inner { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .overlay.night.entering, .overlay.night.leaving, .overlay.dawn.entering,
   .overlay.deal .overlay-card, .overlay.night .overlay-card, .overlay.dawn .overlay-card,
   .death-veil.show .death-card { animation-duration: 200ms; }
+  .seat-card.accuse-upheld::after,
+  .self-panel.accuse-upheld::after { animation-duration: 180ms; }
   .night-sky::before { animation: none; }
 }
 .overlay-card {
@@ -479,6 +502,50 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 .over-meta { margin: 2px 0 4px; color: var(--muted); }
 .over-role .trial-chip { margin-right: 3px; }
 .over-role.constable { border-color: rgba(74,111,146,.5); }
+
+/* 终局四段：幕落 240ms → 胜负 400 → 原因 300 → 座位表 280；只动 opacity/transform。 */
+.overlay.over.entering { animation: fx-over-curtain 240ms ease both; }
+@keyframes fx-over-curtain {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.overlay.over .overlay-card { min-height: 300px; }
+.overlay.over .eyebrow,
+.overlay.over #overTitle,
+.overlay.over #overReason,
+.overlay.over #overRoles {
+  opacity: 0; transform: translateY(8px);
+  transition: opacity 300ms ease, transform 300ms cubic-bezier(.2,0,0,1);
+}
+.overlay.over[data-stage="2"] .eyebrow,
+.overlay.over[data-stage="2"] #overTitle,
+.overlay.over[data-stage="3"] .eyebrow,
+.overlay.over[data-stage="3"] #overTitle,
+.overlay.over[data-stage="4"] .eyebrow,
+.overlay.over[data-stage="4"] #overTitle,
+.overlay.over[data-stage="3"] #overReason,
+.overlay.over[data-stage="4"] #overReason,
+.overlay.over[data-stage="4"] #overRoles {
+  opacity: 1; transform: none;
+}
+[data-motion="reduced"] .overlay.over .eyebrow,
+[data-motion="reduced"] .overlay.over #overTitle,
+[data-motion="reduced"] .overlay.over #overReason,
+[data-motion="reduced"] .overlay.over #overRoles {
+  transform: none; transition: opacity 180ms ease;
+}
+[data-motion="off"] .overlay.over .eyebrow,
+[data-motion="off"] .overlay.over #overTitle,
+[data-motion="off"] .overlay.over #overReason,
+[data-motion="off"] .overlay.over #overRoles {
+  opacity: 1 !important; transform: none !important; transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .overlay.over .eyebrow,
+  .overlay.over #overTitle,
+  .overlay.over #overReason,
+  .overlay.over #overRoles { transform: none; transition: opacity 180ms ease; }
+}
 
 /* card modal */
 .modal { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; }

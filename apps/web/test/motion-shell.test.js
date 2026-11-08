@@ -58,9 +58,9 @@ test("移动端视口高度用 visualViewport 同步", async () => {
   assert.match(app, /--app-vh/);
 });
 
-test("PWA 壳同步升级到 v16 并收进动效与音频模块", async () => {
+test("PWA 壳同步升级到 v17 并收进动效与音频模块", async () => {
   const sw = await web("sw.js");
-  assert.match(sw, /const VERSION = "salem-v16"/);
+  assert.match(sw, /const VERSION = "salem-v17"/);
   for (const file of ["/motion-events.js", "/motion-level.js", "/motion.js", "/render-patch.js", "/audio.js"]) {
     assert.ok(sw.includes('"' + file + '"'), file);
   }

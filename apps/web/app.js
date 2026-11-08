@@ -90,6 +90,8 @@ const S = {
   phaseTimer: null,
   deathShowing: false,
   deathTimer: null,
+  overShown: false,
+  overTimers: [],
   quotaWarned: false,
   audioPhase: null,
   timerWarnKey: null,
@@ -1063,6 +1065,16 @@ const REVEAL_QUEUE_MAX = 3;
 const DEATH_MS = 1200;
 const DEATH_REDUCED_MS = 400;
 
+/** 终局四段：幕落 240 → 胜负 400 → 原因 300 → 座位表 280，总 1220ms。 */
+const OVER_STEPS_FULL = [["1", 0], ["2", 240], ["3", 640], ["4", 940]];
+/** 减弱档只压透明度，四段各自缩短；总 640ms，仍保留因果顺序。 */
+const OVER_STEPS_REDUCED = [["1", 0], ["2", 180], ["3", 420], ["4", 640]];
+
+/** 指控成立：420ms 金色脉冲，最多 3 席同时；减弱档 180ms 仅透明度。 */
+const ACCUSE_UPHELD_MS = 420;
+const ACCUSE_UPHELD_REDUCED_MS = 180;
+const ACCUSE_UPHELD_MAX = 3;
+
 /**
  * 翻身份卡是公开事件，规则层已经把它写进 `state.log`（trialRevealed），全桌都在同一条投影里。
  * 这里只做一件事：把本次投影新增的那几条挑出来，排队播给所有人看。
@@ -1078,9 +1090,11 @@ function announceReveals() {
   }
   const fresh = log.slice(S.seenLog);
   const reveals = fresh.filter((event) => event?.type === "trialRevealed");
+  const accusations = fresh.filter((event) => event?.type === "trialRevealed" && event.cause === "accusation");
   const deaths = fresh.filter((event) => event?.type === "playerDied" || event?.type === "matchmakerBroke");
   S.seenLog = log.length;
 
+  if (accusations.length) showAccuseUpheld(accusations);
   if (reveals.length) {
     S.revealQueue.push(...reveals.slice(0, REVEAL_QUEUE_MAX));
     if (reveals.length > REVEAL_QUEUE_MAX) {
@@ -1089,6 +1103,34 @@ function announceReveals() {
     scheduleNextReveal();
   }
   if (deaths.length) showDeath(deaths);
+}
+
+/**
+ * 指控成立是「公开的坐实瞬间」，不是新的阻塞：只给被坐实的座位加一圈金色脉冲，
+ * 与同批的翻牌并行。trialRevealed.cause === "accusation" 本身已经证明越过了服务端阈值，
+ * 客户端不再重复推导 threshold，避免把规则常量抄进 UI。
+ */
+function showAccuseUpheld(events) {
+  const ids = [...new Set(events.map((event) => Number(event.playerId)).filter(Number.isInteger))];
+  if (!ids.length) return;
+  if (ids.length > ACCUSE_UPHELD_MAX) {
+    toast("另有 " + (ids.length - ACCUSE_UPHELD_MAX) + " 人被指控，已合并展示");
+  }
+  const level = getMotionLevel();
+  if (level === "off") return;
+  const shown = ids.slice(0, ACCUSE_UPHELD_MAX);
+  const ms = level === "reduced" ? ACCUSE_UPHELD_REDUCED_MS : ACCUSE_UPHELD_MS;
+  for (const id of shown) {
+    const seat = id === S.seatId
+      ? $("selfPanel")
+      : document.querySelector('#opponents .seat-card[data-seat="' + id + '"]');
+    if (!seat) continue;
+    seat.classList.remove("accuse-upheld");
+    // 同一帧里重放同一个 class 不会重新触发动画，先读一次布局再挂。
+    void seat.offsetWidth;
+    seat.classList.add("accuse-upheld");
+    setTimeout(() => seat.classList.remove("accuse-upheld"), ms + 40);
+  }
 }
 
 function scheduleNextReveal() {
@@ -1221,6 +1263,7 @@ function startDawnCrossfade() {
 function renderOverlays() {
   const p = S.projection;
   const phase = p?.phase;
+  const suppressNow = S.suppressPhaseEntrance;
   if (phase !== S.lastPhase) {
     const previous = S.lastPhase;
     const suppress = S.suppressPhaseEntrance;
@@ -1233,11 +1276,18 @@ function renderOverlays() {
     else setOverlayVisibility(phase);
     if (!suppress && phase === "night") startNightEntrance();
   }
+  if (phase !== "gameOver" && S.overShown) {
+    // 新一局开始：终局序列的幂等标记与计时器一起清掉，下一局还能完整播一次。
+    S.overShown = false;
+    clearOverTimers();
+    $("overOverlay").classList.remove("entering");
+    $("overOverlay").dataset.stage = "0";
+  }
   $("chatBar").hidden = !(S.room && S.room.phase !== "lobby" && phase !== "gameOver");
   if (phase === "deal") renderDeal();
   if (phase === "night") renderNight();
   if (phase === "dawn") renderDawn();
-  if (phase === "gameOver") renderOver();
+  if (phase === "gameOver") renderOver(suppressNow);
   updateTimers();
 }
 
@@ -1306,7 +1356,23 @@ function renderDawn() {
   }
 }
 
-function renderOver() {
+function clearOverTimers() {
+  for (const timer of S.overTimers) clearTimeout(timer);
+  S.overTimers = [];
+}
+
+function finishOverSequence() {
+  clearOverTimers();
+  const el = $("overOverlay");
+  el.dataset.stage = "4";
+  el.classList.remove("entering");
+}
+
+/**
+ * 终局不新增 block、也没有跳过按钮：四段只是把「谁赢 / 为什么 / 都有谁」按因果顺序放下，
+ * 播放中任意点击直接落终态，按钮始终可点。重连首帧与 off 档直接落终态，不重播。
+ */
+function renderOver(suppress = false) {
   const p = S.projection;
   $("overTitle").textContent = p?.winner === "town" ? "平民胜利" : p?.winner === "witches" ? "女巫胜利" : "对局结束";
   $("overReason").textContent = p?.winnerReason ?? "";
@@ -1317,6 +1383,29 @@ function renderOver() {
       '<div class="over-meta">' + esc(roleName(s.role)) + " · " + (s.alive ? "存活" : "死亡") + "</div>" +
       trialChips(s) + "</div>";
   }).join("");
+
+  const el = $("overOverlay");
+  if (S.overShown) {
+    el.dataset.stage = "4";
+    return;
+  }
+  S.overShown = true;
+  el.dataset.stage = "0";
+  if (suppress || getMotionLevel() === "off") {
+    finishOverSequence();
+    return;
+  }
+  el.classList.remove("entering");
+  void el.offsetWidth;
+  el.classList.add("entering");
+  const steps = getMotionLevel() === "reduced" ? OVER_STEPS_REDUCED : OVER_STEPS_FULL;
+  for (const [stage, delay] of steps) {
+    S.overTimers.push(setTimeout(() => {
+      if (!S.overShown) return;
+      el.dataset.stage = stage;
+      if (stage === "4") finishOverSequence();
+    }, delay));
+  }
 }
 
 function updateTimers() {
@@ -1745,6 +1834,8 @@ function resetRoomState() {
   S.phaseTimer = null;
   S.lastPhase = null;
   S.suppressPhaseEntrance = true;
+  S.overShown = false;
+  clearOverTimers();
   hideDeath();
   $("revealBanner").hidden = true;
   closeModal();
@@ -2115,6 +2206,10 @@ function bind() {
     renderDawn();
   });
   $("submitDawn").addEventListener("click", submitDawn);
+  $("overOverlay").addEventListener("pointerdown", (event) => {
+    if (event.target.closest("#backLobby")) return;
+    if ($("overOverlay").dataset.stage !== "4") finishOverSequence();
+  });
   $("backLobby").addEventListener("click", leaveToLanding);
   $("chatBar").addEventListener("submit", (event) => event.preventDefault());
   $("chatSend").addEventListener("click", () => {

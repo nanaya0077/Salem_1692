@@ -87,8 +87,8 @@ test("样式有夜晚星幕、死亡入画、横幅 1080 曲线与 reduced/off",
   assert.ok(css.includes('[data-motion="off"] .death-veil.show .death-card'));
 });
 
-test("PWA 已升到 v16", async () => {
+test("PWA 已升到 v17", async () => {
   const sw = await web("sw.js");
-  assert.match(sw, /const VERSION = "salem-v16"/);
+  assert.match(sw, /const VERSION = "salem-v17"/);
 });
 
