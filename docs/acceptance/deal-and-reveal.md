@@ -52,6 +52,11 @@
 两侧都确认后相位进 action，开牌屏关闭，日志尾部为 `roleChosen / blackCatPlaced / gameStarted / turnStarted`。
 截图：`shots/i-reconnect-unacked.png`。
 
+> 2026-11-08 补充：本节记录的顶部位置条 `#revealBar` 已被底部抽屉取代（#63 抽壳、#65 接入），
+> 当前形态与尺寸见 [`reveal-drawer.md`](reveal-drawer.md)。本节的投影字段（`pendingReveal` /
+> `revealWait`）也已按 #68 收口为 A：多了 `cause` / `accusationTotal` / `threshold` 三个字段。
+> 以下内容作为历史记录保留，不重写。
+
 ### 挂起式揭示（390×844，两真人 + 两机器人）
 
 - 选择者：位置条 5 个位置（`#1..#5`），全部可点；`stripOverflowX 0`、`document.documentElement.scrollHeight === 844`、
