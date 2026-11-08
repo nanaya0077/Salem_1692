@@ -104,3 +104,23 @@ test("时钟读回合剩余，最后 5 秒才告警", () => {
   assert.match(body, /clockWarn: left !== null && left <= 5000/);
   assert.match(body, /left === null \? ""/, "没有回合时限就整块隐藏，别显示 0 秒");
 });
+
+test("压暗与目标描边是自己的层，不复用传染那套 veil", () => {
+  const css = readFileSync(join(web, "styles.css"), "utf8");
+  const html = readFileSync(join(web, "index.html"), "utf8");
+  assert.ok(html.includes('id="revealVeil"'), "index.html 要有自己的压暗层");
+  assert.ok(/\.reveal-veil\s*\{/.test(css), "压暗层要有着色与 backdrop-filter");
+  assert.match(css, /backdrop-filter: brightness\(\.6\) saturate\(\.8\)/, "#65 定稿的压暗值");
+  assert.ok(/\.reveal-target\s*\{/.test(css), "目标座位要有金色描边类");
+  const body = bodyOf(app, "function setRevealStage(");
+  assert.match(body, /revealVeil/, "压暗层由 setRevealStage 开关");
+  assert.match(body, /reveal-target/, "描边也在这里挂");
+  assert.match(bodyOf(app, "function renderRevealDrawer()"), /setRevealStage\(true, view\.targetId\)/, "选择者打开时把目标座位点亮");
+});
+
+test("12 人 3 张卡不再被撑大：固定 60px 居中", () => {
+  const css = readFileSync(join(web, "styles.css"), "utf8");
+  assert.match(css, /#revealDrawer \.conspiracy-cards \{[^}]*display: flex/, "位置卡改 flex");
+  assert.match(css, /#revealDrawer \.conspiracy-card \{[^}]*flex: 0 0 60px/, "固定 60px，不随容器拉伸");
+  assert.ok(!/#revealDrawer \.conspiracy-cards \{[^}]*auto-fit/.test(css), "不能再留 auto-fit");
+});

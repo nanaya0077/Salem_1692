@@ -976,11 +976,20 @@ function renderPower() {
  * 两步选定——先点位置、再点「选定」；`canDecline` 时露出「放弃」；已提交与旁观走等待槽位。
  * 时钟读回合剩余（`S.private.turnDeadline`）：揭示挂在当前回合上，不另起 20 秒。
  */
+/** 压暗层与目标座位描边：只在抽屉开着时挂，关掉时连类一起清干净。 */
+function setRevealStage(open, targetId = null) {
+  $("revealVeil")?.classList.toggle("on", open === true);
+  for (const el of document.querySelectorAll("#opponents [data-seat]")) {
+    const on = open === true && targetId !== null && Number(el.dataset.seat) === targetId;
+    el.classList.toggle("reveal-target", on);
+  }
+}
 function renderRevealDrawer() {
   const bar = $("revealDrawer");
   // 传染阶段独占「要你选点什么」的位置：两条抽屉同时出现会让人不知道该点哪一个。
   if (S.projection?.phase === "conspiracy") {
     setDrawerOpen(bar, false);
+    setRevealStage(false);
     S.revealPick = null;
     return;
   }
@@ -989,6 +998,7 @@ function renderRevealDrawer() {
     const wait = revealWaitModel(S.revealWait, { nameOf: seatName });
     if (!wait) {
       setDrawerOpen(bar, false);
+      setRevealStage(false);
       S.revealPick = null;
       return;
     }
@@ -1006,6 +1016,7 @@ function renderRevealDrawer() {
       submitDisabled: true,
     });
     setDrawerOpen(bar, true);
+    setRevealStage(true, null);
     updateRevealClock();
     return;
   }
@@ -1047,6 +1058,7 @@ function renderRevealDrawer() {
     submitDisabled: !canSubmitReveal(view, picked),
   });
   setDrawerOpen(bar, true);
+  setRevealStage(true, view.targetId);
   updateRevealClock();
 }
 

@@ -102,7 +102,9 @@
         <button id="cancelTarget" class="btn tiny ghost">取消</button>
       </div>
 
-      <!-- 挂起揭示：与传染共用同一套底部抽屉（类名与槽位同源，见 drawer-shell.js），三种起因一条 UI。 -->
+      <!-- 挂起揭示：与传染共用同一套底部抽屉（类名与槽位同源，见 drawer-shell.js），三种起因一条 UI。
+           压暗自己一层，不复用传染的 veil/seal/swap（#62 的硬约束）。 -->
+      <div id="revealVeil" class="reveal-veil" aria-hidden="true"></div>
       <div id="revealDrawer" class="conspiracy-bar" role="dialog" aria-modal="false" aria-labelledby="revealTitle" data-slot-root="drawer" hidden>
         <div class="conspiracy-head" data-slot="head">
           <span class="conspiracy-kicker" data-slot="kicker"></span>
