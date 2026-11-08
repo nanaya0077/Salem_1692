@@ -22,6 +22,16 @@ import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE 
 import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
 import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText, revealBannerText } from "./reveal-view.js";
 import {
+  canSubmitConspiracy,
+  conspiracyClockText,
+  conspiracyClockWarn,
+  conspiracyHeading,
+  conspiracyNote,
+  conspiracySlots,
+  conspiracyWaitText,
+  leftOfSeat,
+} from "./conspiracy-view.js";
+import {
   armSkip,
   cycleMotionLevel,
   enqueue,
@@ -70,6 +80,8 @@ const S = {
   dawnTarget: null,
   deal: null,
   revealWait: null,
+  conspiracyPick: null,
+  conspiracyStep: null,
   dealFlipped: new Set(),
   dealKey: null,
   toastTimer: null,
@@ -761,7 +773,8 @@ function renderGame() {
     if (p.phase === "dawn") playSfx("sfx.phase.dawn");
   }
   const my = p.self;
-  const locked = revealLocked();
+  // 传染阶段也锁手牌：这一段只能选身份卡，手牌点开只会给出「打出去」的错觉。
+  const locked = revealLocked() || p.phase === "conspiracy";
   const opponents = p.seats.filter((s) => s.id !== S.seatId);
   $("opponents").innerHTML = opponents.map((player) => {
     const classes = ["seat-card"];
@@ -802,6 +815,7 @@ function renderGame() {
     else hint = "等待 " + turnName + " 行动…";
   } else if (p.phase === "deal") hint = "发牌确认：看完自己的身份卡再进入黎明。";
   else if (p.phase === "night") hint = "夜晚结算中…";
+  else if (p.phase === "conspiracy") hint = "传染：黑猫翻开一张，然后全员同时从左邻取一张。";
   else if (p.phase === "dawn") hint = "黎明：女巫正在放置黑猫…";
   else if (p.phase === "gameOver") hint = "对局结束";
   $("centerHint").textContent = hint;
@@ -830,6 +844,7 @@ function renderGame() {
 
   renderRevealBar();
   renderTargetBanner();
+  renderConspiracy();
   renderLog();
 }
 
@@ -957,6 +972,12 @@ function renderPower() {
  */
 function renderRevealBar() {
   const bar = $("revealBar");
+  // 传染阶段独占「要你选点什么」的位置：两条选择条同时出现会让人不知道该点哪一个。
+  if (S.projection?.phase === "conspiracy") {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    return;
+  }
   const view = S.projection?.pendingReveal ?? null;
   if (view) {
     const target = S.projection.seats.find((seat) => seat.id === view.targetId);
@@ -993,9 +1014,72 @@ function renderRevealBar() {
   bar.hidden = false;
 }
 
+/**
+ * 传染阶段：抽屉式面板顶在下半屏。`cat` 步只有黑猫持有者能选，`pick` 步全员同时选左邻；
+ * 候选位置号与已揭示状态都由服务端给（`projection.conspiracy`），客户端不推断谁能选。
+ * 与挂起揭示条、出牌目标横幅互斥：同一时刻只该有一种「等你去选点什么」的东西。
+ */
+function renderConspiracy() {
+  const bar = $("conspiracyBar");
+  const view = S.projection?.phase === "conspiracy" ? (S.projection?.conspiracy ?? null) : null;
+  if (!view) {
+    bar.hidden = true;
+    S.conspiracyPick = null;
+    S.conspiracyStep = null;
+    return;
+  }
+  // 换步就清选中：cat 与 pick 选的是两排不同位置号，串过去会把上一步的索引提交这一
+  // 步。
+  if (S.conspiracyStep !== view.step) {
+    S.conspiracyStep = view.step;
+    S.conspiracyPick = null;
+  }
+  const heading = conspiracyHeading(view, {
+    nameOf: seatName,
+    seatId: S.seatId,
+    playerCount: S.projection?.seats?.length ?? 0,
+  });
+  $("conspiracyTitle").textContent = heading.title;
+  $("conspiracySub").textContent = heading.sub;
+  $("conspiracyCards").innerHTML = conspiracySlots(view).map((slot) => {
+    const picked = slot.index === S.conspiracyPick;
+    const caption = "#" + (slot.index + 1);
+    const disabled = !slot.selectable || view.submitted;
+    return '<button type="button" class="conspiracy-card' + (slot.revealed ? " revealed" : "") +
+      (picked ? " picked" : "") + '" data-conspiracy-index="' + slot.index + '"' +
+      (disabled ? " disabled" : "") + ' aria-pressed="' + (picked ? "true" : "false") +
+      '" aria-label="' + esc(caption) + '">' +
+      (TRIAL_BACK_IMAGE ? '<img src="/' + esc(TRIAL_BACK_IMAGE) + '" alt="" loading="lazy" draggable="false" />' : "") +
+      '<span class="conspiracy-slot">' + esc(caption) + "</span>" +
+      (slot.revealed ? '<span class="conspiracy-tag">已揭示</span>' : "") +
+      "</button>";
+  }).join("");
+  $("conspiracyCards").hidden = view.submitted;
+  $("conspiracyWaiting").hidden = !view.submitted;
+  $("conspiracyWaitText").textContent = conspiracyWaitText(view);
+  $("conspiracyNote").textContent = conspiracyNote(view, S.conspiracyPick);
+  $("conspiracySubmit").textContent = Number.isInteger(S.conspiracyPick)
+    ? "选定（第 " + (S.conspiracyPick + 1) + " 张）"
+    : "选定";
+  $("conspiracySubmit").disabled = !canSubmitConspiracy(view, S.conspiracyPick);
+  bar.hidden = false;
+  updateConspiracyClock();
+}
+
+/** 倒计时只在面板开着时更新；线下模式与阶段刚起没有 deadline，整块隐藏而不是显示 0 秒。 */
+function updateConspiracyClock() {
+  if ($("conspiracyBar").hidden) return;
+  const text = conspiracyClockText(S.room?.conspiracyDeadline ?? null, Date.now());
+  const clock = $("conspiracyClock");
+  clock.textContent = text;
+  clock.hidden = !text;
+  clock.classList.toggle("warn", conspiracyClockWarn(S.room?.conspiracyDeadline ?? null, Date.now()));
+}
+
 function renderTargetBanner() {
   const banner = $("targetBanner");
-  if (!S.pending) {
+  // 传染阶段不该还有出牌的待选目标：这时候留着来源/目标提示只会误导。
+  if (!S.pending || S.projection?.phase === "conspiracy") {
     banner.hidden = true;
     return;
   }
@@ -1420,6 +1504,7 @@ function updateTimers() {
     motionTimerWarn($("turnBadge"), false);
     S.timerWarnKey = null;
     for (const id of ["dealTimer", "dawnTimer", "nightTimer"]) $(id).textContent = "不限时";
+    updateConspiracyClock();
     return;
   }
   const myTurnNow = S.projection?.phase === "action" && S.projection.currentPlayerId === S.seatId;
@@ -1439,6 +1524,7 @@ function updateTimers() {
   if (S.deal?.deadline) $("dealTimer").textContent = seconds(S.deal.deadline) + "s";
   if (p?.dawn?.deadline) $("dawnTimer").textContent = seconds(p.dawn.deadline) + "s";
   if (p?.night?.deadline) $("nightTimer").textContent = seconds(p.night.deadline) + "s";
+  updateConspiracyClock();
 }
 
 function openCardModal(cardId) {
@@ -1819,6 +1905,9 @@ function resetRoomState() {
   S.deal = null;
   S.dealFlipped = new Set();
   S.dealKey = null;
+  S.conspiracyPick = null;
+  S.conspiracyStep = null;
+  $("conspiracyBar").hidden = true;
   S.seenLog = null;
   S.revealQueue = [];
   S.flipSeen.clear();
@@ -2043,6 +2132,20 @@ function bind() {
     const trialIndex = Number(slot.dataset.revealIndex);
     if (!Number.isInteger(trialIndex)) return;
     act({ kind: "reveal", trialIndex });
+  });
+  $("conspiracyCards").addEventListener("click", (event) => {
+    const card = event.target.closest("[data-conspiracy-index]");
+    if (!card || card.disabled) return;
+    const index = Number(card.dataset.conspiracyIndex);
+    if (!Number.isInteger(index)) return;
+    // 再点一次同一张就取消：提交前允许改主意，不用先取消再选。
+    S.conspiracyPick = S.conspiracyPick === index ? null : index;
+    renderConspiracy();
+  });
+  $("conspiracySubmit").addEventListener("click", () => {
+    const view = S.projection?.conspiracy ?? null;
+    if (!canSubmitConspiracy(view, S.conspiracyPick)) return;
+    act({ kind: "conspiracyPick", trialIndex: S.conspiracyPick });
   });
   $("opponents").addEventListener("click", (event) => {
     const button = event.target.closest("[data-seat]");

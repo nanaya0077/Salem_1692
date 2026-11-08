@@ -782,3 +782,92 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 [data-motion-block="1"] #actionBar,
 [data-motion-block="1"] #hand,
 [data-motion-block="1"] #opponents { pointer-events: none; }
+
+/* 传染阶段：抽屉顶在下半屏，桌面上还能看见谁在等谁。形态取自 #59 定下的抽屉变体。 */
+.conspiracy-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100dvh - 32px);
+  padding: 14px 14px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(219, 188, 138, .3);
+  background: linear-gradient(180deg, rgba(38, 27, 20, .97), rgba(24, 17, 13, .99));
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, .5);
+}
+.conspiracy-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.conspiracy-kicker {
+  padding: 2px 8px;
+  border: 1px solid rgba(216, 180, 106, .45);
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: .18em;
+  color: var(--gold);
+}
+.conspiracy-clock.warn { color: var(--gold); font-weight: 700; }
+.conspiracy-clock { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.conspiracy-title { flex-basis: 100%; margin: 6px 0 0; font-size: 15px; font-weight: 700; color: #f3e6cf; }
+.conspiracy-sub { flex-basis: 100%; margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+/* 12 人时要一屏放下：面板自身可滚，卡片按 52px 起点自动折行。 */
+.conspiracy-body { min-height: 0; overflow-y: auto; }
+.conspiracy-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+  gap: 8px;
+  padding: 2px;
+}
+.conspiracy-card {
+  position: relative;
+  min-height: 86px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(219, 188, 138, .28);
+  border-radius: 8px;
+  background: #1b1310;
+  cursor: pointer;
+}
+.conspiracy-card img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; }
+.conspiracy-card.picked { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.conspiracy-card.revealed,
+.conspiracy-card[disabled] { opacity: .32; cursor: default; }
+.conspiracy-slot { display: block; padding: 3px 0; font-size: 10px; color: var(--muted); text-align: center; }
+.conspiracy-card.picked .conspiracy-slot { color: var(--gold); }
+.conspiracy-tag {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .6);
+  font-size: 9px;
+  color: var(--muted);
+}
+.conspiracy-waiting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.conspiracy-ring {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(216, 180, 106, .25);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: conspiracy-spin 900ms linear infinite;
+}
+@keyframes conspiracy-spin { to { transform: rotate(360deg); } }
+.conspiracy-foot { display: flex; align-items: center; gap: 10px; }
+.conspiracy-note { flex: 1; min-width: 0; margin: 0; font-size: 12px; color: var(--muted); }
+.conspiracy-foot .btn { min-height: 44px; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .conspiracy-ring { animation: none; }
+}

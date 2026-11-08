@@ -104,6 +104,27 @@
 
       <div id="revealBar" class="reveal-bar" hidden></div>
 
+      <!-- 传染阶段：抽屉式面板顶在下半屏，桌面上还能看见谁在等谁。规格见 #61，形态取自 #59 的抽屉变体。 -->
+      <div id="conspiracyBar" class="conspiracy-bar" role="dialog" aria-modal="false" aria-labelledby="conspiracyTitle" hidden>
+        <div class="conspiracy-head">
+          <span class="conspiracy-kicker">传染</span>
+          <span id="conspiracyClock" class="conspiracy-clock" aria-live="polite"></span>
+          <h2 id="conspiracyTitle" class="conspiracy-title">选择要揭示的身份卡</h2>
+          <p id="conspiracySub" class="conspiracy-sub"></p>
+        </div>
+        <div id="conspiracyBody" class="conspiracy-body">
+          <div id="conspiracyCards" class="conspiracy-cards" role="group" aria-label="可选的身份卡"></div>
+          <div id="conspiracyWaiting" class="conspiracy-waiting" hidden>
+            <span class="conspiracy-ring" aria-hidden="true"></span>
+            <span id="conspiracyWaitText"></span>
+          </div>
+        </div>
+        <div class="conspiracy-foot">
+          <p id="conspiracyNote" class="conspiracy-note" role="status"></p>
+          <button id="conspiracySubmit" class="btn primary" type="button" disabled>选定</button>
+        </div>
+      </div>
+
       <main class="table-wrap">
         <div id="opponents" class="opponents"></div>
         <div class="center-table">

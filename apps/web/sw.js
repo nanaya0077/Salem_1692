@@ -7,8 +7,10 @@
 // salem-v10：翻身份卡的横幅挪到桌面正中空白区，不压轮次条与手牌。
 // salem-v9：身份卡改双面 3D 翻牌，翻身份卡的全桌横幅进壳。
 // salem-v8：建房页的「线下模式」勾选项与大厅里的状态提示进壳。
+// salem-v19：传染面板倒计时最后 5 秒变金（.conspiracy-clock.warn）。
+// salem-v18：传染阶段（黑猫揭示 + 左邻取牌）的抽屉面板与 conspiracy-view.js 进壳。
 // salem-v17：终局四段揭晓与指控成立金色脉冲；均非阻塞，终局可点击落终态。
-const VERSION = "salem-v17";
+const VERSION = "salem-v19";
 const SHELL = [
   "/",
   "/styles.css",
@@ -19,6 +21,7 @@ const SHELL = [
   "/table-view.js",
   "/deal-view.js",
   "/reveal-view.js",
+  "/conspiracy-view.js",
   "/motion-events.js",
   "/motion-level.js",
   "/motion.js",
@@ -64,7 +67,7 @@ self.addEventListener("fetch", (event) => {
 
   const cacheable = url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") ||
     ["/styles.css", "/app.js", "/avatar-normalize.js", "/profile-store.js", "/reconnect.js",
-      "/table-view.js", "/deal-view.js", "/reveal-view.js", "/motion-events.js",
+      "/table-view.js", "/deal-view.js", "/reveal-view.js", "/conspiracy-view.js", "/motion-events.js",
       "/motion-level.js", "/motion.js", "/render-patch.js", "/audio.js",
       "/manifest.webmanifest"].includes(url.pathname);
   if (!cacheable) return;
