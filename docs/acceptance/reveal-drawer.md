@@ -144,8 +144,9 @@ $env:PLAYERS='4';  node test/fullgame_bots.mjs   # 同理 9 / 12
 第一批没拍到的 12 人 / 诅咒 / 嫁祸 / 放弃 / 等待者，这一批用**真实房间、真实协议**再拍：
 页面自己坐一个座位（`__salem.ws.send` 发 action），其余座位由脚本 WebSocket 客户端驱动
 （`Client` 走 create/join/ready/start、发牌选角、黎明与夜晚投票、出牌），全程不注入投影。
-脚本 `.tmp-ego/real-run.mjs`（未跟踪）；服务端真实时钟（`TURN_MS/DAWN_MS/NIGHT_MS=600000`），
-390×844 视口，截图前只把 `#toast` 暂时隐藏。
+驱动脚本是一次性本地脚本（`.tmp-ego/real-run.mjs`，未入库、已随临时目录清理；做法就是页面 + 若干
+`Client` 各坐一席，按 `projection` 驱动，可参考 `apps/server/test/reveal.mjs` 复写）；
+服务端真实时钟（`TURN_MS/DAWN_MS/NIGHT_MS=600000`），390×844 视口，截图前只把 `#toast` 暂时隐藏。
 
 | 场景 | 座位与视角 | 挂起数据 | 实拍 |
 | --- | --- | --- | --- |
