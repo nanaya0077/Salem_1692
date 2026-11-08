@@ -565,6 +565,8 @@ test("投影：不泄漏牌堆、他人手牌与未揭示身份；自己可见",
     targetId: 1,
     slots: ["hidden", "hidden", "hidden"],
     canDecline: false,
+    cause: "accusation",
+    threshold: 7,
   });
 });
 

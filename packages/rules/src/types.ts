@@ -115,6 +115,10 @@ export interface PendingRevealView {
   /** 长度 = 目标面前身份卡张数。 */
   slots: TrialSlot[];
   canDecline: boolean;
+  /** 起因：指控 / 诅咒 / 嫁祸。抽屉标题靠它换句式。 */
+  cause: RevealCause;
+  /** 指控门槛；非指控起因给 null。客户端不复制规则函数，直接用这个数。 */
+  threshold: number | null;
 }
 
 export type RevealCommand = { kind: "reveal"; trialIndex: number } | { kind: "decline" };

@@ -139,21 +139,28 @@ const targetId = pending.targetId;
 console.log("pending ok: chooser", chooser.name, "#" + chooser.seatId, "-> target", targetId, "slots", pending.slots.join(","));
 
 assert.equal(pending.chooserId, chooser.seatId, "挂起的 chooserId 应是本人");
+// #66：选择者视图要带起因与门槛，抽屉标题靠它拼「指控 N 点（门槛 M）」。
+assert.equal(pending.cause, "accusation", "这一局的挂起起因是指控");
+assert.equal(pending.threshold, 7, "普通人之间门槛 7");
 assert.ok(
   clients.filter((c) => c !== chooser).every((c) => !c.projection.pendingReveal),
   "挂起只该投给选择者，别人的投影里不该有 pendingReveal",
 );
-// 零泄漏：旁观者只拿到「谁在选、目标是谁」，位置内容、卡 id 与卡面一个字节都不该出现。
+// 零泄漏：旁观者只拿到「谁在选、给谁选 + 公开的起因与数字」，位置内容、卡 id 与卡面一个字节都不该出现。
 for (const c of clients.filter((x) => x !== chooser)) {
   const wait = c.revealWait;
   assert.ok(wait, "非选择者应看到「等待 X 选择」的挂起提示");
   assert.deepEqual(
     Object.keys(wait).sort(),
-    ["chooserId", "targetId"],
-    "等待提示只该带 chooserId 与 targetId，实际 " + Object.keys(wait).join(","),
+    ["accusationTotal", "cause", "chooserId", "targetId", "threshold"],
+    "等待提示只该带这五个字段，实际 " + Object.keys(wait).join(","),
   );
   assert.equal(wait.chooserId, chooser.seatId, "等待提示的 chooserId 应是选择者");
   assert.equal(wait.targetId, targetId, "等待提示的 targetId 应是目标");
+  assert.equal(wait.cause, "accusation", "等待提示也要能说清起因");
+  assert.equal(wait.threshold, 7, "门槛是公开数字");
+  assert.equal(typeof wait.accusationTotal, "number", "点数合计是公开数字");
+  assert.ok(wait.accusationTotal >= wait.threshold, "已经到门槛才会挂起");
   const raw = JSON.stringify(c.projection) + JSON.stringify(c.revealWait);
   for (const key of ["pendingReveal", "trialIndex", "trialId"]) {
     assert.ok(!raw.includes('"' + key + '"'), "旁观者投影里不该出现禁用键 " + key);

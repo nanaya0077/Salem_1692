@@ -4,8 +4,9 @@
  * 纯函数、不碰 DOM、不 import 任何东西——页面里画出来的与 `node --test` 跑的是同一份。
  *
  * 两条信息来自不同地方，别混：
- * - 选择者自己的挂起态在 `projection.pendingReveal`（带 slots / canDecline，只发给选择者本人）；
- * - 其他人的「有人在选位置」在 projection 消息顶层的 `revealWait`（只有 chooserId / targetId）。
+ * - 选择者自己的挂起态在 `projection.pendingReveal`（带 slots / canDecline / cause / threshold，只发给选择者本人）；
+ * - 其他人的「有人在选位置」在 projection 消息顶层的 `revealWait`
+ *   （chooserId / targetId / cause / threshold / accusationTotal，全是公开数字，没有位置明细）。
  */
 
 const HIDDEN = "hidden";

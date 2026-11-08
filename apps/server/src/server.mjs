@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import {
   CARD_CATALOG,
+  accusationTotal,
   beginNightForTest,
   canPlayCard,
   chooseRole,
@@ -27,6 +28,7 @@ import {
   startGame,
   submitCatReveal,
   submitConspiracyPick,
+  thresholdFor,
   titubaReorder,
 } from "../../../packages/rules/src/index.ts";
 
@@ -302,13 +304,21 @@ function dealView(room) {
 }
 
 /**
- * 挂起揭示的公开信号：谁在选、给谁选。只报这两个 id——位置与「能不能放弃」只发给选择者本人
- * （projection.pendingReveal），这里多一个字都会把盲区漏给全桌。
+ * 挂起揭示的公开信号：谁在选、给谁选、什么起因、几点、门槛多少。
+ * 位置号与「能不能放弃」只发给选择者本人（projection.pendingReveal），这里多一个字都会把盲区漏给全桌。
  */
 function revealWaitView(room) {
   const pending = room.game?.pendingReveal;
   if (!pending) return null;
-  return { chooserId: pending.chooserId, targetId: pending.targetId };
+  const game = room.game;
+  const threshold = pending.cause === "accusation" ? thresholdFor(game, pending.targetId, pending.chooserId) : null;
+  return {
+    chooserId: pending.chooserId,
+    targetId: pending.targetId,
+    cause: pending.cause,
+    threshold,
+    accusationTotal: accusationTotal(game, pending.targetId),
+  };
 }
 
 function privateState(room, seat) {

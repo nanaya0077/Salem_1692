@@ -75,6 +75,8 @@ test("挂起态只投给选择者：位置号数组，他人拿到空", () => {
     targetId: 1,
     slots: ["hidden", "hidden", "hidden"],
     canDecline: false,
+    cause: "accusation",
+    threshold: 7,
   });
   for (const viewerId of [1, 2, 3]) {
     const view = project(played.state, viewerId);
@@ -229,6 +231,45 @@ test("其余路径的放弃命令被拒：诅咒与普通指控都不可放弃",
   if (!hit.ok) return;
   assert.equal(hit.state.pendingReveal?.canDecline, false);
   assert.deepEqual(resolvePendingReveal(hit.state, 0, { kind: "decline" }), { ok: false, reason: "cannot-decline" });
+});
+
+test("投影里的起因与门槛：指控给数字，诅咒与嫁祸给 null", () => {
+  const accused = baseGame();
+  setHands(accused, [["witness"], [], [], []]);
+  const hit = playCard(accused, { actorId: 0, cardId: "witness", targetId: 1 });
+  assert.equal(hit.ok, true);
+  if (!hit.ok) return;
+  const accusedView = project(hit.state, 0).pendingReveal;
+  assert.equal(accusedView?.cause, "accusation", "起因是指控");
+  assert.equal(accusedView?.threshold, 7, "普通人之间门槛 7");
+
+  const cursed = baseGame();
+  cursed.players[1].blue.push("piety");
+  cursed.players[1].accusations = ["witness"];
+  setHands(cursed, [["curse"], [], [], []]);
+  const cursing = playCard(cursed, { actorId: 0, cardId: "curse", targetId: 1 });
+  assert.equal(cursing.ok, true);
+  if (!cursing.ok) return;
+  const curseView = project(cursing.state, 0).pendingReveal;
+  assert.equal(curseView?.cause, "curse", "起因是诅咒");
+  assert.equal(curseView?.threshold, null, "诅咒没有门槛");
+
+  const framed = baseGame();
+  setTrials(framed, 2, ["townspeople", "townspeople"]);
+  framed.players[1].blue = ["piety"];
+  framed.players[1].accusations = ["witness"];
+  setHands(framed, [["scapegoat"], [], [], []]);
+  const moving = playCard(framed, { actorId: 0, cardId: "scapegoat", sourceId: 1, targetId: 2 });
+  assert.equal(moving.ok, true);
+  if (!moving.ok) return;
+  const scapegoatView = project(moving.state, 0).pendingReveal;
+  assert.equal(scapegoatView?.cause, "scapegoat", "起因是嫁祸");
+  assert.equal(scapegoatView?.threshold, null, "嫁祸没有门槛");
+
+  // 门槛数字只给选择者：等待者视图里没有 pendingReveal，也就没有 cause/threshold。
+  for (const viewerId of [1, 2, 3]) {
+    assert.equal("pendingReveal" in project(hit.state, viewerId), false, "非选择者拿不到起因与门槛");
+  }
 });
 
 test("挂起期间抽牌、出牌、结束回合一律被拒", () => {

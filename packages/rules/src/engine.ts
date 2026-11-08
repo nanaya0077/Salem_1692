@@ -1131,6 +1131,9 @@ export function project(state: GameState, viewerId: number): Projection {
       targetId: pending.targetId,
       slots: state.players[pending.targetId].trials.map((t) => (t.revealed ? "revealed" : "hidden")),
       canDecline: pending.canDecline,
+      cause: pending.cause,
+      // 门槛只有指控有：丹福斯对普通人 6、对其余 7，乔治·伯勒兹再各自 +1。
+      threshold: pending.cause === "accusation" ? thresholdFor(state, pending.targetId, pending.chooserId) : null,
     };
     projection.pendingReveal = view;
   }
