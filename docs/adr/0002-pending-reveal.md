@@ -2,7 +2,9 @@
 
 `salem-1692-card-and-rules-facts.md:70` 写的是“达到门槛后，由**打出达到门槛那张牌的玩家**选择目标一张未揭示试炼牌翻开”，而实现一直是取第一张未揭示的（`chooseDefaultTrialId`，票 #12 里已删除）。选择必须发生在结算之前，因为翻牌会连带触发死亡、警长转移、丽贝卡抽牌、安妮计数、阿比盖尔弃红卡。因此 `GameState` 增加挂起态 `pendingReveal`：`playCard` 在达门槛处停下并写入 `{ targetId, chooserId, cause, canDecline, useAbigail }`，等选择者的命令才继续——服务端只调一个入口 `resolvePendingReveal(state, chooserId, { kind: "reveal", trialIndex } | { kind: "decline" })`。只有 1 张未揭示且不可放弃时自动揭示不弹窗；**可放弃优先于省掉选位置**：丹福斯把目标压到正好 6 点、目标只剩一张时仍进挂起，`slots` 只有一个 `"hidden"`，放弃或翻开都由他决定。回合计时继续跑，超时、托管、机器人用 `defaultRevealIndex` 取第一张兜底。`canDecline` 只对“丹福斯对普通玩家的第 6 点”为 true（`thresholdFor === 6 && accusationTotal === 6`）。
 
-对外用**位置号**而不是卡 id，因为 `TrialCard.id` 形如 `witch-0`（`setup.ts:42`），把 id 发给选择者等于直接把类型报给他。`pendingReveal` 只下发给选择者，形如 `{ targetId, chooserId, slots: ["hidden" | "revealed"], canDecline }`（原因只留在内部状态与事件里），并纳入 SPEC §4 的零泄漏禁用键扫描；测试用“遍历所有 viewer、比对真实未揭示卡 id”的扫描而不是点对点字符串比较。挂起期间 `canPlayCard`、`drawTwo`、`endTurn`、`samuelTake`、`titubaReorder` 一律返回 `reveal-pending`。
+**视图契约（2026-11-08 按 #68 收口为 A）**：`cause`、`accusationTotal`、`threshold` 三个字段在触发那一刻就锁进 `pendingReveal`，选择者视图（`projection.pendingReveal`）与等待者视图（`revealWait`）都直接拷贝，**视图期不重算**——同一对数字只有一个计算点，两个视图同形且恒为数字。字段名统一为 `accusationTotal`（不叫 `points`）。数据恒给、文案按起因分支：只有指控把点数与门槛写进标题（`目标名 · 指控 N 点（门槛 M）`），诅咒与嫁祸写作 `目标名 · 诅咒揭示` / `目标名 · 嫁祸揭示`，因为它们的成立靠的是「弃 Piety / 红卡转移后仍 ≥ 门槛」，标题写数字会被读成「还差多少点就能指控」。
+
+对外用**位置号**而不是卡 id，因为 `TrialCard.id` 形如 `witch-0`（`setup.ts:42`），把 id 发给选择者等于直接把类型报给他。`pendingReveal` 只下发给选择者，形如 `{ targetId, chooserId, slots: ["hidden" | "revealed"], canDecline, cause, accusationTotal, threshold }`，并纳入 SPEC §4 的零泄漏禁用键扫描。测试用“遍历所有 viewer、比对真实未揭示卡 id”的扫描而不是点对点字符串比较。挂起期间 `canPlayCard`、`drawTwo`、`endTurn`、`samuelTake`、`titubaReorder` 一律返回 `reveal-pending`。
 
 **Considered Options**
 

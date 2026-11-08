@@ -11,7 +11,9 @@
 // salem-v19：传染面板倒计时最后 5 秒变金（.conspiracy-clock.warn）。
 // salem-v21：抽屉外壳 drawer-shell.js 进壳，传染改用槽位写入（#63）。
 // salem-v17：终局四段揭晓与指控成立金色脉冲；均非阻塞，终局可点击落终态。
-const VERSION = "salem-v22";
+// salem-v22：挂起揭示迁到共享抽屉（两步选定、放弃、等待与时钟），旧的顶部 revealBar 已删。
+// salem-v23：起因与两个数字改由挂起态自带（#68），标题按起因分支，选择者与等待者同形。
+const VERSION = "salem-v23";
 const SHELL = [
   "/",
   "/styles.css",

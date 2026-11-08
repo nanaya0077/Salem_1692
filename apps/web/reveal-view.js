@@ -52,40 +52,50 @@ export function revealWaitText(wait, nameOf) {
 /**
  * 选择者抽屉的标题模型。
  *
- * 门槛只对指控有意义：`threshold` 为空（嫁祸、诅咒）时不能写「门槛 0」，
- * 那是把「没有门槛」说成「门槛是 0」。点数 `total` 来自等待视图里的公开数字，
- * 选择者本人这边没有，所以调用方可以只在有值时传。
+ * 数据恒给、显示按起因分支：两个数字在挂起态里恒为数字（见 #68），
+ * 但只有指控该把点数与门槛写进标题 —— 诅咒与嫁祸的成立靠的是
+ * 「弃 Piety / 红卡转移后仍 ≥ 门槛」，标题写数字会被读成
+ * 「还差多少点就能指控」，是叙事污染。
  */
 export function revealHeading(view, options = {}) {
   const { nameOf, total } = options;
-  const copy = causeCopy(view?.cause);
+  const cause = view?.cause;
+  const copy = causeCopy(cause);
   const target = seatLabel(view?.targetId, nameOf);
   const threshold = Number.isFinite(view?.threshold) ? view.threshold : null;
-  const points = Number.isFinite(total) ? total : null;
-  const suffix = threshold === null ? "" : " " + (points === null ? "" : points + " 点") +
-    "（门槛 " + threshold + "）";
+  const points = Number.isFinite(view?.accusationTotal)
+    ? view.accusationTotal
+    : Number.isFinite(total) ? total : null;
+  let title;
+  if (cause === "accusation") {
+    title = target + " · 指控" + (points === null ? "" : " " + points + " 点") +
+      (threshold === null ? "" : "（门槛 " + threshold + "）");
+  } else if (cause === "curse" || cause === "scapegoat") {
+    title = target + " · " + copy.kicker + "揭示";
+  } else {
+    title = target + " 的身份卡";
+  }
   return {
     kicker: copy.kicker,
-    title: target + " 的身份卡" + suffix,
+    title,
     sub: copy.verb + "：选中后再点「选定」，选定前可以改。",
     note: "超时或托管会自动取第一个未揭示位置。",
   };
 }
 
-/** 等待者抽屉的标题模型：谁在选、为什么、他还剩多久。 */
+/** 等待者抽屉的标题模型：谁在选、为什么、他还剩多久。标题与选择者同形，避免两边各写一套。 */
 export function revealWaitModel(wait, options = {}) {
   const { nameOf } = options;
   if (!wait) return null;
   const copy = causeCopy(wait.cause);
-  const target = seatLabel(wait.targetId, nameOf);
   const chooser = seatLabel(wait.chooserId, nameOf);
-  const threshold = Number.isFinite(wait.threshold) ? wait.threshold : null;
-  const total = Number.isFinite(wait.accusationTotal) ? wait.accusationTotal : null;
-  const suffix = threshold === null ? "" : " " + (total === null ? "" : total + " 点") +
-    "（门槛 " + threshold + "）";
+  const heading = revealHeading(
+    { cause: wait.cause, targetId: wait.targetId, threshold: wait.threshold, accusationTotal: wait.accusationTotal },
+    { nameOf },
+  );
   return {
     kicker: copy.kicker,
-    title: target + " 的身份卡" + suffix,
+    title: heading.title,
     sub: "由 " + chooser + " 决定翻开哪一张，你只能等结果。",
     waitText: revealWaitText(wait, nameOf),
     note: "这期间抽牌、出牌与结束回合都不可用。",

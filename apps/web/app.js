@@ -1024,8 +1024,8 @@ function renderRevealDrawer() {
   const submitted = Number.isInteger(view.pick);
   if (submitted) S.revealPick = view.pick;
   const picked = submitted ? view.pick : S.revealPick;
-  const total = S.revealWait?.accusationTotal ?? null;
-  const heading = revealHeading(view, { nameOf: seatName, total: total });
+  // 点数与门槛已经在 view 里（#68：锁在挂起态，视图期不重算），不再从等待视图借。
+  const heading = revealHeading(view, { nameOf: seatName });
   const trials = S.projection.seats.find((seat) => seat.id === view.targetId)?.trials ?? [];
   const cardsHtml = slotView(view.slots).map((slot) => {
     const trial = trials[slot.index];

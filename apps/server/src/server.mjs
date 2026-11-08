@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import {
   CARD_CATALOG,
-  accusationTotal,
   beginNightForTest,
   canPlayCard,
   chooseRole,
@@ -28,7 +27,6 @@ import {
   startGame,
   submitCatReveal,
   submitConspiracyPick,
-  thresholdFor,
   titubaReorder,
 } from "../../../packages/rules/src/index.ts";
 
@@ -305,19 +303,18 @@ function dealView(room) {
 
 /**
  * 挂起揭示的公开信号：谁在选、给谁选、什么起因、几点、门槛多少。
- * 位置号与「能不能放弃」只发给选择者本人（projection.pendingReveal），这里多一个字都会把盲区漏给全桌。
+ * 两个数字都在触发时锁进了挂起态，这里原样拷，不做第二个计算点。
+ * 位置号与「能不能放弃」只发给选择者本人（projection.pendingReveal），这里不给。
  */
 function revealWaitView(room) {
   const pending = room.game?.pendingReveal;
   if (!pending) return null;
-  const game = room.game;
-  const threshold = pending.cause === "accusation" ? thresholdFor(game, pending.targetId, pending.chooserId) : null;
   return {
     chooserId: pending.chooserId,
     targetId: pending.targetId,
     cause: pending.cause,
-    threshold,
-    accusationTotal: accusationTotal(game, pending.targetId),
+    threshold: pending.threshold,
+    accusationTotal: pending.accusationTotal,
   };
 }
 

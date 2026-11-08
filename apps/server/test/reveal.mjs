@@ -161,6 +161,9 @@ for (const c of clients.filter((x) => x !== chooser)) {
   assert.equal(wait.threshold, 7, "门槛是公开数字");
   assert.equal(typeof wait.accusationTotal, "number", "点数合计是公开数字");
   assert.ok(wait.accusationTotal >= wait.threshold, "已经到门槛才会挂起");
+  // #68 收口为 A：两个数字锁在挂起态里，选择者与等待者读到的是同一份，不是各算一次。
+  assert.equal(pending.accusationTotal, wait.accusationTotal, "两个视图的点数必须同值");
+  assert.equal(pending.threshold, wait.threshold, "两个视图的门槛必须同值");
   const raw = JSON.stringify(c.projection) + JSON.stringify(c.revealWait);
   for (const key of ["pendingReveal", "trialIndex", "trialId"]) {
     assert.ok(!raw.includes('"' + key + '"'), "旁观者投影里不该出现禁用键 " + key);

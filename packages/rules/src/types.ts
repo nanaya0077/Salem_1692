@@ -104,6 +104,10 @@ export interface PendingReveal {
   canDecline: boolean;
   /** 打出达到门槛那张牌的玩家是否声明使用阿比盖尔能力；结算揭示时才生效。 */
   useAbigail: boolean;
+  /** 触发那一刻目标面前的红卡点数，锁进挂起态，视图期不再现算。 */
+  accusationTotal: number;
+  /** 触发那一刻算好的门槛，锁进挂起态，视图期不再现算。 */
+  threshold: number;
 }
 
 export type TrialSlot = "hidden" | "revealed";
@@ -117,8 +121,10 @@ export interface PendingRevealView {
   canDecline: boolean;
   /** 起因：指控 / 诅咒 / 嫁祸。抽屉标题靠它换句式。 */
   cause: RevealCause;
-  /** 指控门槛；非指控起因给 null。客户端不复制规则函数，直接用这个数。 */
-  threshold: number | null;
+  /** 触发时目标面前的红卡点数，恒为数字。 */
+  accusationTotal: number;
+  /** 触发时算好的门槛，恒为数字；写不写进文案由起因决定。 */
+  threshold: number;
 }
 
 export type RevealCommand = { kind: "reveal"; trialIndex: number } | { kind: "decline" };

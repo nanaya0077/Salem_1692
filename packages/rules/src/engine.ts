@@ -428,7 +428,16 @@ function triggerReveal(
     settleAfterReveal(state, targetId, chooserId, cause, useAbigail, events);
     return;
   }
-  state.pendingReveal = { targetId, chooserId, cause, canDecline, useAbigail };
+  state.pendingReveal = {
+    targetId,
+    chooserId,
+    cause,
+    canDecline,
+    useAbigail,
+    // 两个数字在触发这一刻就锁死：视图期不再现算，选择者与等待者读到的是同一份。
+    accusationTotal: accusationTotal(state, targetId),
+    threshold: thresholdFor(state, targetId, chooserId),
+  };
 }
 
 function addAccusation(
@@ -1132,8 +1141,9 @@ export function project(state: GameState, viewerId: number): Projection {
       slots: state.players[pending.targetId].trials.map((t) => (t.revealed ? "revealed" : "hidden")),
       canDecline: pending.canDecline,
       cause: pending.cause,
-      // 门槛只有指控有：丹福斯对普通人 6、对其余 7，乔治·伯勒兹再各自 +1。
-      threshold: pending.cause === "accusation" ? thresholdFor(state, pending.targetId, pending.chooserId) : null,
+      // 两个数字触发时就锁进挂起态了，这里原样拷，不重算。
+      accusationTotal: pending.accusationTotal,
+      threshold: pending.threshold,
     };
     projection.pendingReveal = view;
   }

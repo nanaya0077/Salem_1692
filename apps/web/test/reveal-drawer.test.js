@@ -34,15 +34,23 @@ function bodyOf(source, marker) {
 
 const nameOf = (id) => ({ 0: "阿比盖尔", 1: "机器人1" }[id] ?? null);
 
-test("指控的标题带点数与门槛，嫁祸与诅咒不带", () => {
-  const accused = revealHeading({ cause: "accusation", targetId: 1, threshold: 6 }, { nameOf, total: 6 });
+test("标题数据恒给、文案按起因分支：只有指控写点数与门槛", () => {
+  const accused = revealHeading({ cause: "accusation", targetId: 1, threshold: 6, accusationTotal: 6 }, { nameOf });
   assert.equal(accused.kicker, "指控成立");
-  assert.equal(accused.title, "机器人1 的身份卡 6 点（门槛 6）");
+  assert.equal(accused.title, "机器人1 · 指控 6 点（门槛 6）");
   assert.match(accused.sub, /选中后再点「选定」/);
 
-  const scapegoat = revealHeading({ cause: "scapegoat", targetId: 1, threshold: null }, { nameOf, total: 9 });
+  // 三种起因的 threshold 现在都是数字（#68 收口为 A），所以不能再靠「有没有门槛」分支。
+  const scapegoat = revealHeading({ cause: "scapegoat", targetId: 1, threshold: 7, accusationTotal: 9 }, { nameOf });
   assert.equal(scapegoat.kicker, "嫁祸");
-  assert.equal(scapegoat.title, "机器人1 的身份卡", "没有门槛时不能写「门槛 0」，也不能写点数");
+  assert.equal(scapegoat.title, "机器人1 · 嫁祸揭示", "嫁祸不写点数，免得被读成「还差多少点就能指控」");
+
+  const curse = revealHeading({ cause: "curse", targetId: 1, threshold: 7, accusationTotal: 9 }, { nameOf });
+  assert.equal(curse.title, "机器人1 · 诅咒揭示");
+
+  // 老调用方还在传 total 的也照样能用：view 里没有 accusationTotal 时回落到它。
+  const legacy = revealHeading({ cause: "accusation", targetId: 1, threshold: 6 }, { nameOf, total: 6 });
+  assert.equal(legacy.title, "机器人1 · 指控 6 点（门槛 6）");
 });
 
 test("等待模型点名谁在选、目标是谁，并复用同一条等待文案", () => {
@@ -51,7 +59,7 @@ test("等待模型点名谁在选、目标是谁，并复用同一条等待文�
     { nameOf },
   );
   assert.equal(wait.kicker, "指控成立");
-  assert.equal(wait.title, "机器人1 的身份卡 6 点（门槛 6）");
+  assert.equal(wait.title, "机器人1 · 指控 6 点（门槛 6）", "等待者与选择者标题同形");
   assert.match(wait.sub, /由 阿比盖尔 决定/);
   assert.equal(wait.waitText, "等待 阿比盖尔 选择揭示位置");
   assert.equal(revealWaitModel(null, { nameOf }), null, "没有等待态就该让调用方关掉抽屉");

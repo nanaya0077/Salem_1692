@@ -76,6 +76,7 @@ test("挂起态只投给选择者：位置号数组，他人拿到空", () => {
     slots: ["hidden", "hidden", "hidden"],
     canDecline: false,
     cause: "accusation",
+    accusationTotal: 7,
     threshold: 7,
   });
   for (const viewerId of [1, 2, 3]) {
@@ -233,7 +234,7 @@ test("其余路径的放弃命令被拒：诅咒与普通指控都不可放弃",
   assert.deepEqual(resolvePendingReveal(hit.state, 0, { kind: "decline" }), { ok: false, reason: "cannot-decline" });
 });
 
-test("投影里的起因与门槛：指控给数字，诅咒与嫁祸给 null", () => {
+test("投影里的起因与门槛：三种起因都给数字，锁在挂起态里", () => {
   const accused = baseGame();
   setHands(accused, [["witness"], [], [], []]);
   const hit = playCard(accused, { actorId: 0, cardId: "witness", targetId: 1 });
@@ -242,6 +243,7 @@ test("投影里的起因与门槛：指控给数字，诅咒与嫁祸给 null", 
   const accusedView = project(hit.state, 0).pendingReveal;
   assert.equal(accusedView?.cause, "accusation", "起因是指控");
   assert.equal(accusedView?.threshold, 7, "普通人之间门槛 7");
+  assert.equal(accusedView?.accusationTotal, 7, "目标面前 7 点，与门槛同源锁定");
 
   const cursed = baseGame();
   cursed.players[1].blue.push("piety");
@@ -252,7 +254,8 @@ test("投影里的起因与门槛：指控给数字，诅咒与嫁祸给 null", 
   if (!cursing.ok) return;
   const curseView = project(cursing.state, 0).pendingReveal;
   assert.equal(curseView?.cause, "curse", "起因是诅咒");
-  assert.equal(curseView?.threshold, null, "诅咒没有门槛");
+  assert.equal(Number.isInteger(curseView?.threshold), true, "诅咒也给门槛数字（写不写进标题由前端按起因分支）");
+  assert.equal(Number.isInteger(curseView?.accusationTotal), true, "诅咒也给点数数字");
 
   const framed = baseGame();
   setTrials(framed, 2, ["townspeople", "townspeople"]);
@@ -264,7 +267,8 @@ test("投影里的起因与门槛：指控给数字，诅咒与嫁祸给 null", 
   if (!moving.ok) return;
   const scapegoatView = project(moving.state, 0).pendingReveal;
   assert.equal(scapegoatView?.cause, "scapegoat", "起因是嫁祸");
-  assert.equal(scapegoatView?.threshold, null, "嫁祸没有门槛");
+  assert.equal(Number.isInteger(scapegoatView?.threshold), true, "嫁祸也给门槛数字（同上）");
+  assert.equal(Number.isInteger(scapegoatView?.accusationTotal), true, "嫁祸也给点数数字");
 
   // 门槛数字只给选择者：等待者视图里没有 pendingReveal，也就没有 cause/threshold。
   for (const viewerId of [1, 2, 3]) {
