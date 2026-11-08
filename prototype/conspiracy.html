@@ -28,6 +28,7 @@
 
   .board{padding:10px 12px 130px;position:relative}
   .seatrow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .seatrow.c4{grid-template-columns:repeat(4,1fr)}
   .seat{position:relative;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:7px 8px;background:rgba(36,26,20,.72);min-height:56px}
   .seat.self{border-color:rgba(216,179,106,.35)}
   .seat.target{border-color:var(--gold);box-shadow:0 0 0 1px rgba(216,179,106,.35),0 0 18px rgba(216,179,106,.12)}
@@ -287,7 +288,7 @@
     return out;
   }
   function seatRow(){
-    return '<div class="seatrow">' + state.seats.map(function(s){
+    return '<div class="seatrow' + (state.count === 4 ? ' c4' : '') + '">' + state.seats.map(function(s){
       var target = (state.step === "cat" && s.id === state.catHolder) || (state.step === "pick" && s.id === leftOf(0));
       var submitted = s.id === 0 ? state.selfPick !== null : (state.picks[s.id] !== undefined || state.bots[s.id]);
       return '<div class="seat ' + (s.id === 0 ? "self " : "") + (target ? "target" : "") + '">' +
