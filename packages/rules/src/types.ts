@@ -148,6 +148,9 @@ export interface ConspiracyView {
   catSeatId: number | null;
   /** 只反映**本人**是否已提交。 */
   submitted: boolean;
+  /** 本步聚合：已提交人数与应提交人数。只给计数，不下发「谁交了」。 */
+  submittedCount: number;
+  eligibleCount: number;
   /** 候选位置号，长度 = 被选人当前的身份卡张数。 */
   candidates: number[];
   /** 其中已揭示、因此不可选的位置号。 */

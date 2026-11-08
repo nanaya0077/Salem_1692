@@ -1122,12 +1122,19 @@ export function project(state: GameState, viewerId: number): Projection {
               if (t.revealed) acc.push(i);
               return acc;
             }, []);
+      const alive = state.players.filter((p) => p.alive);
       projection.conspiracy = {
         step: conspiracy.step,
         drawerId: conspiracy.drawerId,
         catSeatId: conspiracy.catSeatId,
         submitted:
           isCatTurn ? conspiracy.catPick !== null : typeof conspiracy.picks[viewerId] === "number",
+        submittedCount: isCatTurn
+          ? conspiracy.catPick !== null
+            ? 1
+            : 0
+          : alive.filter((p) => typeof conspiracy.picks[p.id] === "number").length,
+        eligibleCount: isCatTurn ? 1 : alive.length,
         candidates: selectableSlots(state, subjectId),
         revealed,
       };

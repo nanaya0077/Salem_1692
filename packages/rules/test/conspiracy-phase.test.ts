@@ -211,6 +211,11 @@ test("已提交的人投影里 submitted 为真，别人的提交状态不外泄
   assert.equal(mine.conspiracy?.submitted, true);
   const other = project(res.state, 1);
   assert.equal(other.conspiracy?.submitted, false);
-  // 投影里既没有 picks 也没有别人的选择
+  // 聚合计数是公开的：一人交了，所有人都看到 1/6
+  assert.equal(mine.conspiracy?.submittedCount, 1);
+  assert.equal(mine.conspiracy?.eligibleCount, 6);
+  assert.equal(other.conspiracy?.submittedCount, 1);
+  assert.equal(other.conspiracy?.eligibleCount, 6);
+  // 但投影里既没有 picks 也没有别人的选择
   assert.equal(JSON.stringify(other).includes('"picks"'), false);
 });
