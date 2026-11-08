@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>挂起揭示抽屉 · 原型（#67）</title>
+<style>
+  /* 这个原型只定「形态」与「壳槽位」，样式刻意从简：真样式由 #63 抽壳时统一。
+     槽位命名是本票要交的契约：
+       [data-slot="head"]    → 起因胶囊 + 时钟
+       [data-slot="kicker"]  → 起因文案（指控 / 嫁祸 / 诅咒）
+       [data-slot="title"]   → 目标名 + 「N 点（门槛 M）」
+       [data-slot="sub"]     → 一句话说清要干什么
+       [data-slot="cards"]   → 位置卡网格（已揭示 disabled）
+       [data-slot="waiting"] → 非选择者 / 已提交后的等待环
+       [data-slot="note"]    → 兜底说明（超时或托管自动取第一个未揭示位）
+       [data-slot="foot"]    → 放弃（可选）+ 选定
+  */
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  html, body { margin: 0; padding: 0; background: #0b0906; }
+  body {
+    font-family: "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+    color: #efe3cc;
+    min-height: 100dvh;
+    display: flex;
+    justify-content: center;
+  }
+
+  /* 390×844 的舞台，截图只截它 */
+  #stage {
+    position: relative;
+    width: 390px;
+    height: 844px;
+    overflow: hidden;
+    background: radial-gradient(120% 80% at 50% 0%, #2a1c11 0%, #120d08 55%, #0a0705 100%);
+  }
+
+  /* 假牌桌：只为了证明「压暗但保留上下文」 */
+  .table {
+    position: absolute;
+    inset: 0;
+    padding: 10px;
+    transition: filter 260ms ease, opacity 260ms ease;
+  }
+  #stage[data-dim="1"] .table { filter: brightness(0.42) saturate(0.7); }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    color: #d8c39d;
+  }
+  .topbar .pill {
+    border: 1px solid rgba(216, 169, 76, 0.5);
+    border-radius: 999px;
+    padding: 3px 10px;
+    color: #e8c87a;
+  }
+  .seats {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+  .seat {
+    flex: 0 0 auto;
+    width: 84px;
+    border: 1px solid rgba(219, 188, 138, 0.28);
+    border-radius: 10px;
+    padding: 6px;
+    background: rgba(28, 20, 13, 0.9);
+    font-size: 11px;
+    color: #cbb894;
+  }
+  .seat b { display: block; color: #f0e2c8; font-size: 12px; }
+  .seat .dots { margin-top: 4px; letter-spacing: 2px; color: #9a8straight; }
+  .seat .dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: rgba(216, 169, 76, 0.5); margin-right: 2px; }
+  .center {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 300px;
+    text-align: center;
+    font-size: 64px;
+    letter-spacing: 0.02em;
+    color: rgba(216, 169, 76, 0.16);
+  }
+  .center small {
+    display: block;
+    font-size: 13px;
+    letter-spacing: 0.3em;
+    color: rgba(216, 169, 76, 0.5);
+    margin-top: 6px;
+  }
+
+  /* ── 抽屉本体（共享壳） ── */
+  .drawer {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-height: calc(100dvh - 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid rgba(216, 169, 76, 0.42);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(38, 26, 17, 0.98), rgba(22, 15, 10, 0.99));
+    box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.55);
+    animation: drawer-in 260ms ease-out both;
+  }
+  @keyframes drawer-in {
+    from { transform: translateY(14px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  .drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .drawer-kicker {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: #e8c87a;
+    border: 1px solid rgba(216, 169, 76, 0.5);
+    border-radius: 999px;
+    padding: 2px 9px;
+  }
+  .drawer-clock {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: #b7a488;
+  }
+  .drawer-clock.warn { color: #d8a94c; font-weight: 700; }
+
+  .drawer-title {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.3;
+    color: #f5e9d0;
+  }
+  .drawer-title .points {
+    font-size: 12px;
+    font-weight: 400;
+    color: #d8a94c;
+    margin-left: 6px;
+  }
+  .drawer-sub {
+    margin: 0;
+    font-size: 12px;
+    color: #b9a487;
+  }
+
+  .drawer-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+    gap: 8px;
+    overflow-y: auto;
+  }
+  .drawer-card {
+    position: relative;
+    padding: 0;
+    border: 1px solid rgba(219, 188, 138, 0.28);
+    border-radius: 8px;
+    background: #1b140d url("/assets/cards/zh/back-trial.png") center/cover no-repeat;
+    aspect-ratio: 2 / 3;
+    min-height: 86px;
+    color: #efe3cc;
+    font-size: 12px;
+  }
+  .drawer-card .idx {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 2px;
+    text-align: center;
+    font-size: 10px;
+    color: #cdb894;
+  }
+  .drawer-card[aria-pressed="true"] {
+    border-color: #d8a94c;
+    box-shadow: 0 0 0 2px rgba(216, 169, 76, 0.42) inset;
+  }
+  .drawer-card[disabled] { opacity: 0.32; }
+
+  .drawer-waiting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #cbb894;
+  }
+  .wait-ring {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(216, 169, 76, 0.28);
+    border-top-color: #d8a94c;
+    animation: spin 900ms linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .drawer-note {
+    margin: 0;
+    font-size: 11px;
+    color: #9c8b73;
+  }
+
+  .drawer-foot {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .btn {
+    flex: 1;
+    min-height: 44px;
+    border-radius: 10px;
+    border: 1px solid rgba(219, 188, 138, 0.32);
+    background: rgba(30, 21, 14, 0.9);
+    color: #e5d6ba;
+    font-size: 13px;
+  }
+  .btn.primary {
+    border-color: rgba(216, 169, 76, 0.7);
+    background: linear-gradient(180deg, rgba(216, 169, 76, 0.9), rgba(150, 110, 40, 0.9));
+    color: #1a1208;
+    font-weight: 700;
+  }
+  .btn[disabled] { opacity: 0.45; }
+
+  /* 降级：reduced 只留 opacity 与位移，off 全关 */
+  html[data-level="reduced"] .drawer { animation: none; }
+  html[data-level="reduced"] .drawer-card[aria-pressed="true"] { transition: opacity 120ms linear; }
+  html[data-level="reduced"] .wait-ring { animation: none; border-top-color: rgba(216, 169, 76, 0.6); }
+  html[data-level="off"] *,
+  html[data-level="off"] *::before,
+  html[data-level="off"] *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer { animation: none; }
+    .wait-ring { animation: none; }
+  }
+
+  #notes {
+    max-width: 390px;
+    padding: 12px;
+    font-size: 11px;
+    color: #7d6f5c;
+    display: none; /* 截图用不到；要读契约走票面 */
+  }
+</style>
+</head>
+<body>
+<main id="stage" data-dim="1">
+  <div class="table">
+    <div class="topbar">
+      <span class="pill" id="phasePill">挂起揭示</span>
+      <span id="turnLabel">轮到 玩家 2 · 84s</span>
+    </div>
+    <div class="seats" id="seats"></div>
+    <div class="center">1692<small id="centerLabel">白天</small></div>
+  </div>
+
+  <section class="drawer" id="drawer" role="dialog" aria-modal="false">
+    <header class="drawer-head" data-slot="head">
+      <span class="drawer-kicker" data-slot="kicker" id="kicker"></span>
+      <span class="drawer-clock" data-slot="clock" id="clock"></span>
+    </header>
+    <h2 class="drawer-title" data-slot="title" id="title"></h2>
+    <p class="drawer-sub" data-slot="sub" id="sub"></p>
+    <div class="drawer-cards" data-slot="cards" id="cards"></div>
+    <div class="drawer-waiting" data-slot="waiting" id="waiting" hidden>
+      <span class="wait-ring"></span>
+      <span id="waitText"></span>
+    </div>
+    <p class="drawer-note" data-slot="note" id="note"></p>
+    <footer class="drawer-foot" data-slot="foot">
+      <button class="btn" id="declineBtn" hidden>放弃</button>
+      <button class="btn primary" id="submitBtn" disabled>选定</button>
+    </footer>
+  </section>
+</main>
+<pre id="notes"></pre>
+
+<script type="module">
+import { slotView, canDecline, revealWaitText } from "../reveal-view.js";
+
+const params = new URLSearchParams(location.search);
+const state = params.get("state") || "chooser";      // chooser | picked | submitted | waiter | declinable | clockwarn
+const count = Number(params.get("count") || 4);      // 4 | 9 | 12
+const cause = params.get("cause") || "accusation";   // accusation | curse | scapegoat
+const level = params.get("level") || "full";         // full | reduced | off
+
+document.documentElement.dataset.level = level;
+
+/** 每人数对应的身份卡张数，取规则层 DEFAULT_TABLE 的 identityCardsPerPlayer。 */
+const CARDS_PER_PLAYER = { 4: 5, 5: 5, 6: 5, 7: 5, 8: 4, 9: 4, 10: 3, 11: 3, 12: 3 };
+const cardCount = CARDS_PER_PLAYER[count] ?? 3;
+
+const NAMES = ["阿比盖尔", "玛丽·沃伦", "约翰", "塞缪尔", "蒂图巴", "威廉", "伊丽莎白", "梅丽", "乔纳森", "乔治", "海丝特", "约翰·威尔"];
+const nameOf = (id) => NAMES[id % NAMES.length];
+
+const CAUSES = {
+  accusation: { kicker: "指控成立", verb: "选择要揭示的身份卡" },
+  curse: { kicker: "诅咒", verb: "选择要揭示的身份卡" },
+  scapegoat: { kicker: "嫁祸", verb: "选择要揭示的身份卡" },
+};
+
+const chooserId = 1;
+const targetId = 2;
+const accusationTotal = 7;
+const threshold = cause === "accusation" ? 7 : null;
+
+/** 已揭示的位置：12 人局常见「前面已翻过一张」，这里固定第 2 张已揭示。 */
+function slotsFor() {
+  const slots = Array.from({ length: cardCount }, () => "hidden");
+  if (cardCount >= 4) slots[1] = "revealed";
+  return slots;
+}
+
+const pendingView = {
+  chooserId,
+  targetId,
+  slots: slotsFor(),
+  canDecline: state === "declinable" || (state === "chooser" && false),
+  cause,
+  threshold,
+};
+
+const waitView = { chooserId, targetId, cause, threshold, accusationTotal };
+
+document.getElementById("phasePill").textContent = CAUSES[cause].kicker;
+document.getElementById("centerLabel").textContent = "白天";
+
+// 座位行：按人数铺，横向滚动由 overflow 处理（真页面是横向卡片条）
+const seats = document.getElementById("seats");
+for (let i = 0; i < count; i += 1) {
+  const seat = document.createElement("div");
+  seat.className = "seat";
+  seat.innerHTML = "<b>" + (i === 0 ? "你" : nameOf(i)) + "</b>" +
+    "<span>" + (i === targetId ? "◆ 目标" : "存活") + "</span>" +
+    '<div class="dots">' + "<span></span>".repeat(3) + "</div>";
+  seats.appendChild(seat);
+}
+
+const kickerEl = document.getElementById("kicker");
+const clockEl = document.getElementById("clock");
+const titleEl = document.getElementById("title");
+const subEl = document.getElementById("sub");
+const cardsEl = document.getElementById("cards");
+const waitingEl = document.getElementById("waiting");
+const waitTextEl = document.getElementById("waitText");
+const noteEl = document.getElementById("note");
+const submitBtn = document.getElementById("submitBtn");
+const declineBtn = document.getElementById("declineBtn");
+
+const isWaiter = state === "waiter";
+const submitted = state === "submitted";
+
+if (isWaiter) {
+  // 等待者：抽屉里只有等待句 + 等待环 + 回合剩余，不出现位置明细
+  kickerEl.textContent = CAUSES[cause].kicker;
+  titleEl.textContent = nameOf(targetId) + " 的身份卡";
+  if (threshold !== null) {
+    const points = document.createElement("span");
+    points.className = "points";
+    points.textContent = " " + accusationTotal + " 点（门槛 " + threshold + "）";
+    titleEl.appendChild(points);
+  }
+  subEl.textContent = "由 " + nameOf(chooserId) + " 决定翻开哪一张，你只能等结果。";
+  cardsEl.hidden = true;
+  waitingEl.hidden = false;
+  waitTextEl.textContent = revealWaitText(waitView, nameOf);
+  noteEl.textContent = "超时或托管会自动取第一个未揭示位置。";
+  submitBtn.hidden = true;
+  declineBtn.hidden = true;
+} else {
+  kickerEl.textContent = CAUSES[cause].kicker;
+  titleEl.textContent = nameOf(targetId) + " 的身份卡";
+  if (threshold !== null) {
+    const points = document.createElement("span");
+    points.className = "points";
+    points.textContent = " " + accusationTotal + " 点（门槛 " + threshold + "）";
+    titleEl.appendChild(points);
+  }
+  subEl.textContent = CAUSES[cause].verb + "：选中后再点「选定」，选定前可以改。";
+
+  const slots = slotView(pendingView.slots);
+  const pickedIndex = state === "picked" ? 0 : submitted ? 0 : -1;
+  for (const slot of slots) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "drawer-card";
+    btn.dataset.index = String(slot.index);
+    btn.disabled = slot.disabled;
+    btn.setAttribute("aria-pressed", slot.index === pickedIndex ? "true" : "false");
+    btn.innerHTML = '<span class="idx">#' + (slot.index + 1) + "</span>";
+    cardsEl.appendChild(btn);
+  }
+
+  if (submitted) {
+    cardsEl.hidden = true;
+    waitingEl.hidden = false;
+    waitTextEl.textContent = "已提交，等待结算";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "已提交";
+    noteEl.textContent = "回到桌面还能看到压暗的牌桌；结算后会揭晓翻到的是什么。";
+  } else {
+    const hasPick = pickedIndex >= 0;
+    submitBtn.disabled = !hasPick;
+    submitBtn.textContent = hasPick ? "选定（第 " + (pickedIndex + 1) + " 张）" : "选定";
+    noteEl.textContent = "超时或托管会自动取第一个未揭示位置。";
+  }
+
+  const declinable = state === "declinable" || canDecline(pendingView);
+  declineBtn.hidden = !declinable;
+}
+
+// 时钟：取回合剩余；最后 5 秒变金
+const remainMs = state === "clockwarn" ? 4000 : 84000;
+function renderClock() {
+  const seconds = Math.max(0, Math.ceil(remainMs / 1000));
+  clockEl.textContent = seconds + " 秒";
+  clockEl.classList.toggle("warn", seconds <= 5);
+}
+renderClock();
+
+// 把本票要交的槽位契约也印在 DOM 上，便于抽壳票直接对着抓
+const slotsUsed = [...document.querySelectorAll("[data-slot]")].map((el) => el.dataset.slot);
+document.getElementById("notes").textContent = JSON.stringify({
+  state, count, cause, level,
+  cardCount,
+  slots: slotsUsed,
+  pendingView: isWaiter ? null : pendingView,
+  revealWait: isWaiter ? waitView : null,
+}, null, 2);
+</script>
+</body>
+</html>
