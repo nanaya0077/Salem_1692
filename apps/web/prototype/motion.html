@@ -148,6 +148,45 @@
     html[data-level="reduced"] .reveal.in { animation: none; opacity: 1; transform: none; }
     html[data-level="reduced"] .veil { transition-duration: var(--base); }
     html[data-level="reduced"] .night-bg, html[data-level="reduced"] .dawn-bg, html[data-level="reduced"] .moon { transition-duration: var(--base); }
+
+    /* ── 场景 4：终局揭晓（幕落 → 胜负 → 原因 → 座位分批 → 平民胜证据高亮）── */
+    .over-veil {
+      position: absolute; inset: 0; opacity: 0; pointer-events: none;
+      background: radial-gradient(circle at 50% 32%, rgba(216, 169, 76, .18), rgba(0, 0, 0, .72));
+      transition: opacity 240ms var(--ease-out);
+    }
+    .over-veil.on { opacity: 1; }
+    .over-body { position: relative; width: 100%; max-width: 344px; }
+    .over-title {
+      font-size: 1.65rem; font-weight: 600; color: var(--gold); opacity: 0;
+      transform: translateY(8px) scale(.96);
+      transition: opacity 400ms var(--ease-out), transform 400ms var(--ease-out);
+    }
+    .over-title.on { opacity: 1; transform: none; }
+    .over-reason {
+      margin-top: 6px; font-size: .78rem; color: var(--muted); opacity: 0; transform: translateY(6px);
+      transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out);
+    }
+    .over-reason.on { opacity: 1; transform: none; }
+    .over-seats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+    .over-seat {
+      position: relative; border: 1px solid rgba(219, 188, 138, .24); border-radius: 10px;
+      padding: 8px 9px; opacity: 0; transform: translateY(6px);
+      transition: opacity 280ms var(--ease-out), transform 280ms var(--ease-out);
+    }
+    .over-seat.on { opacity: 1; transform: none; }
+    .over-seat b { display: block; font-size: .72rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .over-seat .tiny { display: block; margin-top: 2px; font-size: .6rem; color: var(--muted); }
+    .over-seat .ring {
+      position: absolute; inset: -1px; border-radius: 10px; border: 2px solid var(--gold);
+      opacity: 0; pointer-events: none; transition: opacity 280ms var(--ease-out);
+    }
+    .over-seat .ring.on { opacity: .9; }
+    .over-seat.proof { border-color: rgba(216, 169, 76, .5); }
+    html[data-level="reduced"] .over-title,
+    html[data-level="reduced"] .over-reason,
+    html[data-level="reduced"] .over-seat { transform: none; transition-duration: var(--base); }
+    html[data-level="reduced"] .over-veil { transition-duration: var(--base); }
     html[data-level="off"] *, html[data-level="off"] *::after { animation: none !important; transition: none !important; }
     html[data-level="off"] .reveal.in { opacity: 1; transform: none; }
     @media (prefers-reduced-motion: reduce) {
@@ -208,6 +247,15 @@
           <button class="ghost primary" id="dawnBtn" type="button" style="position:absolute;bottom:92px;z-index:5">进入黎明</button>
         </section>
 
+        <section class="scene" id="sceneOver" aria-label="终局揭晓">
+          <div class="over-veil"></div>
+          <div class="over-body">
+            <div class="over-title" id="overTitle">平民胜利</div>
+            <div class="over-reason" id="overReason">所有女巫身份卡都已揭示。</div>
+            <div class="over-seats" id="overSeats"></div>
+          </div>
+        </section>
+
         <div class="reveal" id="reveal" role="status" aria-live="polite">
           <img src="/assets/cards/zh/witch.png" alt="">
           <div><div class="kicker">身份卡 · 公开揭示</div><div class="title" id="revealTitle">约翰 翻开了「女巫」</div></div>
@@ -233,6 +281,12 @@
           <div class="row"><button class="ghost" id="nightPlay" type="button">回到夜晚</button><button class="ghost" id="dawnPlay" type="button">进入黎明</button></div>
         </div>
         <div class="card-panel">
+          <h3>4 · 终局揭晓</h3>
+          <p>幕落 240 → 胜负 400 → 原因 300 → 座位表 280/批（4 座一批、间隔 40ms），总 1240ms，非阻塞。平民胜高亮「已揭示的女巫卡」；女巫胜不高亮——那要读存活者的 everWitch，客户端拿不到，演它就是猜。</p>
+          <div class="row"><button class="ghost" id="overTown" type="button">平民胜</button><button class="ghost" id="overWitch" type="button">女巫胜</button></div>
+        </div>
+
+        <div class="card-panel">
           <h3>怎么判断</h3>
           <p class="note">看三件事：<br>1. 翻牌后你是否先看到牌面再读到横幅；<br>2. 死亡 1.2s 是否够读完名字与死因，又没久到想点掉；<br>3. 夜晚到黎明是否像「天亮了」，而不是页面被换掉。</p>
         </div>
@@ -248,13 +302,14 @@
     let flipTimer = null;
     let bannerTimers = [];
     let deathTimer = null;
+    let overTimers = [];
 
     function applyLevel(next) {
       level = next;
       localStorage.setItem("salem.motion", level);
       document.documentElement.dataset.level = level;
       document.querySelectorAll("[data-level]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.level === level)));
-      if (level === "off") { finishFlip(); finishDeath(); }
+      if (level === "off") { finishFlip(); finishDeath(); clearOver(); }
     }
     document.querySelectorAll("[data-level]").forEach((b) => b.addEventListener("click", () => applyLevel(b.dataset.level)));
     applyLevel(level);
@@ -345,6 +400,94 @@
       if (event.target.closest("#deathSkip")) return;
       if ($("sceneDeath").classList.contains("blocking")) finishDeath();
     });
+    const OVER_SEATS = [
+      { name: "阿比盖尔", role: "女巫", revealed: true, witch: true },
+      { name: "约翰", role: "村民", revealed: true, witch: false },
+      { name: "玛丽", role: "女巫", revealed: true, witch: true },
+      { name: "塞缪尔", role: "村民", revealed: false, witch: false },
+      { name: "托马斯", role: "村民", revealed: true, witch: false },
+      { name: "伊丽莎白", role: "村民", revealed: false, witch: false },
+    ];
+
+    function clearOver() {
+      overTimers.forEach(clearTimeout);
+      overTimers = [];
+    }
+
+    function overSeatHtml(seat) {
+      const proof = seat.witch && seat.revealed;
+      const card = seat.revealed ? "身份卡已揭示" : "身份卡未揭示";
+      return (
+        '<div class="over-seat' + (proof ? " proof" : "") + '">' +
+        '<span class="ring" aria-hidden="true"></span>' +
+        "<b>" + seat.name + "</b>" +
+        '<span class="tiny">' + seat.role + " · " + card + "</span>" +
+        "</div>"
+      );
+    }
+
+    // 档位换算：off 全 0，reduced 压到 --base 的节奏（200ms、无 stagger）。
+    const overDur = (full) => (level === "off" ? 0 : level === "reduced" ? 200 : full);
+
+    function startOver(kind) {
+      scene("sceneOver", "终局揭晓");
+      $("caption").innerHTML =
+        "<b>终局 1240ms</b> · 幕落 240 / 胜负 400 / 原因 300 / 座位 280×批（间隔 40ms）· 非阻塞 · 女巫胜不高亮";
+      clearOver();
+      const sceneEl = $("sceneOver");
+      const veil = sceneEl.querySelector(".over-veil");
+      const title = $("overTitle");
+      const reason = $("overReason");
+      const seatsBox = $("overSeats");
+      const townWin = kind === "town";
+
+      veil.classList.remove("on");
+      title.classList.remove("on");
+      reason.classList.remove("on");
+      title.textContent = townWin ? "平民胜利" : "女巫胜利";
+      reason.textContent = townWin ? "所有女巫身份卡都已揭示。" : "所有存活玩家都曾经持有女巫卡。";
+      seatsBox.innerHTML = OVER_SEATS.map(overSeatHtml).join("");
+
+      const tIn = overDur(240);
+      const tTitle = overDur(400);
+      const tReason = overDur(300);
+      const tBatch = overDur(280);
+      const tStagger = level === "reduced" || level === "off" ? 0 : 40;
+      const group = [...seatsBox.querySelectorAll(".over-seat")];
+
+      // off 档：一次全落，不做逐段。
+      if (level === "off") {
+        veil.classList.add("on");
+        title.classList.add("on");
+        reason.classList.add("on");
+        for (const node of group) {
+          node.classList.add("on");
+          if (townWin && node.classList.contains("proof")) node.querySelector(".ring").classList.add("on");
+        }
+        return;
+      }
+
+      overTimers.push(setTimeout(() => veil.classList.add("on"), 0));
+      overTimers.push(setTimeout(() => title.classList.add("on"), tIn));
+      overTimers.push(setTimeout(() => reason.classList.add("on"), tIn + tTitle));
+
+      const start = tIn + tTitle + tReason;
+      for (let i = 0, batch = 0; i < group.length; i += 4, batch += 1) {
+        const slice = group.slice(i, i + 4);
+        overTimers.push(
+          setTimeout(() => {
+            for (const node of slice) {
+              node.classList.add("on");
+              if (townWin && node.classList.contains("proof")) node.querySelector(".ring").classList.add("on");
+            }
+          }, start + batch * tStagger),
+        );
+      }
+    }
+
+    $("overTown").addEventListener("click", () => startOver("town"));
+    $("overWitch").addEventListener("click", () => startOver("witch"));
+
     $("nightPlay").addEventListener("click", startNight);
     $("dawnPlay").addEventListener("click", startDawn);
     $("dawnBtn").addEventListener("click", startDawn);
