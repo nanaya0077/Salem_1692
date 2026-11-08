@@ -11,6 +11,7 @@ import { CARD_CATALOG } from "../../../packages/rules/src/index.ts";
  *   GAMES=10            连续跑几局，默认 1
  *   GAME_TIMEOUT_MS=180000  单局超时，默认 180s
  *   PLAY_RATE=0.35      轮到本人时出红卡的概率，其余情况抽两张
+ *   PLAYERS=12          入座人数（4–12），默认 12
  *   BOT_DELAY_MS=15     每个动作的随机延迟基数
  */
 
@@ -20,7 +21,7 @@ const GAMES = Math.max(1, Number(process.env.GAMES || 1));
 const GAME_TIMEOUT_MS = Math.max(5000, Number(process.env.GAME_TIMEOUT_MS || 180000));
 const BOT_DELAY_MS = Math.max(0, Number(process.env.BOT_DELAY_MS || 15));
 const PLAY_RATE = Math.min(1, Math.max(0, Number(process.env.PLAY_RATE ?? 0.35)));
-const PLAYER_COUNT = 12;
+const PLAYER_COUNT = Math.min(12, Math.max(4, Number(process.env.PLAYERS || 12)));
 const DEBUG = process.env.DEBUG === "1";
 const debug = (...args) => { if (DEBUG) console.log("[debug]", ...args); };
 
@@ -129,6 +130,12 @@ class BotClient {
       this.projection = message.projection;
       this.private = message.private;
       this.room = message.room ?? this.room;
+      // 验收用：#53 要看到 4/9/12 人局里传染阶段真的开过，且投影不带隐藏信息。
+      if (message.projection?.phase === "conspiracy") {
+        this.conspiracySightings = (this.conspiracySightings ?? 0) + 1;
+        const json = JSON.stringify(message.projection.conspiracy ?? {});
+        if (/"kind"|"catPick"|"picks"|witch-|constable-/.test(json)) this.conspiracyLeak = json;
+      }
       if (DEBUG) debug(this.name, "projection", message.projection?.phase, "current", message.projection?.currentPlayerId, "v", message.projection?.version);
       this.think();
       return;
@@ -336,7 +343,7 @@ async function runGame(gameNo) {
       await client.waitFor("入座 " + i, () => client.seatId !== null, 10000);
     }
 
-    await host.waitFor("12 人满座", () => host.room?.seats?.length === PLAYER_COUNT, 10000);
+    await host.waitFor(PLAYER_COUNT + " 人满座", () => host.room?.seats?.length === PLAYER_COUNT, 10000);
     for (const client of clients) client.send({ type: "ready", ready: true });
     await host.waitFor("全部准备", () => host.room?.startable === true, 15000);
 
@@ -358,6 +365,8 @@ async function runGame(gameNo) {
       winner: host.projection?.winner ?? "unknown",
       reason: host.projection?.winnerReason ?? "",
       logCount,
+      conspiracySeats: clients.filter((client) => (client.conspiracySightings ?? 0) > 0).length,
+      conspiracyLeak: clients.find((client) => client.conspiracyLeak)?.conspiracyLeak ?? null,
       errors: mergeErrors(clients),
     };
   } catch (error) {
@@ -384,6 +393,7 @@ function printGame(result) {
       " winner=" + result.winner +
       (result.reason ? " (" + result.reason + ")" : "") +
       " log=" + result.logCount +
+      " conspiracy=" + (result.conspiracySeats ?? 0) + "/" + PLAYER_COUNT +
       " errors=" + errorCount,
     );
   } else {
@@ -421,8 +431,12 @@ for (const result of results) {
   }
 }
 
-console.log("\n=== 12 人整局压测汇总 ===");
+console.log("\n=== " + PLAYER_COUNT + " 人整局压测汇总 ===");
 console.log("games=" + GAMES + " ok=" + okGames.length + " failed=" + failed.length);
+const conspiracyGames = okGames.filter((r) => (r.conspiracySeats ?? 0) > 0).length;
+console.log("传染阶段出现=" + conspiracyGames + "/" + okGames.length + " 局（座位可见数为分母 " + PLAYER_COUNT + "）");
+const leaks = okGames.filter((r) => r.conspiracyLeak);
+console.log("传染投影泄漏=" + (leaks.length ? leaks.length + " 局（" + leaks[0].conspiracyLeak.slice(0, 120) + "）" : "0"));
 if (durations.length) {
   const total = durations.reduce((sum, n) => sum + n, 0);
   console.log(
