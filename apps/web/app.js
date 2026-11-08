@@ -51,6 +51,7 @@ import {
 } from "./motion.js";
 import { patchKeyed } from "./render-patch.js";
 import { haptic, initAudio, playSfx, setAudioLevel, setAudioPhase, unlockAudio } from "./audio.js";
+import { applyDrawerModel, setDrawerOpen } from "./drawer-shell.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1027,7 +1028,7 @@ function renderConspiracy() {
   const bar = $("conspiracyBar");
   const view = S.projection?.phase === "conspiracy" ? (S.projection?.conspiracy ?? null) : null;
   if (!view) {
-    bar.hidden = true;
+    setDrawerOpen(bar, false);
     S.conspiracyPick = null;
     S.conspiracyStep = null;
     if (S.conspiracyShown !== null) leaveConspiracyStage();
@@ -1050,9 +1051,8 @@ function renderConspiracy() {
     seatId: S.seatId,
     playerCount: S.projection?.seats?.length ?? 0,
   });
-  $("conspiracyTitle").textContent = heading.title;
-  $("conspiracySub").textContent = heading.sub;
-  $("conspiracyCards").innerHTML = conspiracySlots(view).map((slot) => {
+  // 内容照旧，只是不再自己摸 DOM：全部交给共享壳的槽位写入。
+  const cardsHtml = conspiracySlots(view).map((slot) => {
     const picked = slot.index === S.conspiracyPick;
     const caption = "#" + (slot.index + 1);
     const disabled = !slot.selectable || view.submitted;
@@ -1065,26 +1065,34 @@ function renderConspiracy() {
       (slot.revealed ? '<span class="conspiracy-tag">已揭示</span>' : "") +
       "</button>";
   }).join("");
-  $("conspiracyCards").hidden = view.submitted;
-  $("conspiracyWaiting").hidden = !view.submitted;
-  $("conspiracyWaitText").textContent = conspiracyWaitText(view);
-  $("conspiracyNote").textContent = conspiracyNote(view, S.conspiracyPick);
-  $("conspiracySubmit").textContent = Number.isInteger(S.conspiracyPick)
-    ? "选定（第 " + (S.conspiracyPick + 1) + " 张）"
-    : "选定";
-  $("conspiracySubmit").disabled = !canSubmitConspiracy(view, S.conspiracyPick);
-  bar.hidden = false;
+  applyDrawerModel(bar, {
+    title: heading.title,
+    sub: heading.sub,
+    cardsHtml,
+    cardsHidden: view.submitted,
+    waiting: view.submitted,
+    waitText: conspiracyWaitText(view),
+    note: conspiracyNote(view, S.conspiracyPick),
+    submitLabel: Number.isInteger(S.conspiracyPick)
+      ? "选定（第 " + (S.conspiracyPick + 1) + " 张）"
+      : "选定",
+    submitDisabled: !canSubmitConspiracy(view, S.conspiracyPick),
+  });
+  setDrawerOpen(bar, true);
   updateConspiracyClock();
 }
 
 /** 倒计时只在面板开着时更新；线下模式与阶段刚起没有 deadline，整块隐藏而不是显示 0 秒。 */
 function updateConspiracyClock() {
-  if ($("conspiracyBar").hidden) return;
-  const text = conspiracyClockText(S.room?.conspiracyDeadline ?? null, Date.now());
-  const clock = $("conspiracyClock");
-  clock.textContent = text;
-  clock.hidden = !text;
-  clock.classList.toggle("warn", conspiracyClockWarn(S.room?.conspiracyDeadline ?? null, Date.now()));
+  const bar = $("conspiracyBar");
+  if (bar.hidden) return;
+  const deadline = S.room?.conspiracyDeadline ?? null;
+  const now = Date.now();
+  // 只写时钟两个槽，其余槽位不动——每 500ms 跑一次，别把整份内容重写。
+  applyDrawerModel(bar, {
+    clockText: conspiracyClockText(deadline, now),
+    clockWarn: conspiracyClockWarn(deadline, now),
+  });
 }
 
 /**

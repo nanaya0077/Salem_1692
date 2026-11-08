@@ -22,6 +22,7 @@ const app = read("app.js");
 const html = read("index.html");
 const css = read("styles.css");
 const sw = read("sw.js");
+const shell = read("drawer-shell.js");
 
 /** 从 marker 之后第一个 `{` 起按大括号配对截出函数体，用来断言「接线接上了」。 */
 function bodyOf(source, marker) {
@@ -171,11 +172,15 @@ test("倒计时最后 5 秒变金，没有 deadline 时不提醒", () => {
 });
 
 test("倒计时变金接在同一处刷新里，样式也留了挂点", () => {
-  assert.ok(app.includes('clock.classList.toggle("warn", conspiracyClockWarn('), "每次刷新顺手切换 warn");
+  assert.ok(app.includes("clockWarn: conspiracyClockWarn("), "每次刷新把 warn 交给壳");
   assert.ok(css.includes(".conspiracy-clock.warn"), "样式里有 .conspiracy-clock.warn");
+  assert.ok(
+    shell.includes('classList.toggle("warn", m.clockWarn === true)'),
+    "壳里负责切 warn 类",
+  );
 });
 
 test("新模块进离线壳", () => {
   assert.ok(sw.includes('"/conspiracy-view.js"'), "conspiracy-view.js 必须进 SHELL");
-  assert.match(sw, /const VERSION = "salem-v20"/);
+  assert.match(sw, /const VERSION = "salem-v21"/);
 });

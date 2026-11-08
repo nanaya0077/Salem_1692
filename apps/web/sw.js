@@ -9,9 +9,9 @@
 // salem-v8：建房页的「线下模式」勾选项与大厅里的状态提示进壳。
 // salem-v20：传染阶段的完整演出——压暗与印章、换牌三拍、私密 peek 与 sfx.conspiracy.start。
 // salem-v19：传染面板倒计时最后 5 秒变金（.conspiracy-clock.warn）。
-// salem-v18：传染阶段（黑猫揭示 + 左邻取牌）的抽屉面板与 conspiracy-view.js 进壳。
+// salem-v21：抽屉外壳 drawer-shell.js 进壳，传染改用槽位写入（#63）。
 // salem-v17：终局四段揭晓与指控成立金色脉冲；均非阻塞，终局可点击落终态。
-const VERSION = "salem-v20";
+const VERSION = "salem-v21";
 const SHELL = [
   "/",
   "/styles.css",
@@ -23,6 +23,7 @@ const SHELL = [
   "/deal-view.js",
   "/reveal-view.js",
   "/conspiracy-view.js",
+    "/drawer-shell.js",
   "/motion-events.js",
   "/motion-level.js",
   "/motion.js",
@@ -69,7 +70,8 @@ self.addEventListener("fetch", (event) => {
 
   const cacheable = url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") ||
     ["/styles.css", "/app.js", "/avatar-normalize.js", "/profile-store.js", "/reconnect.js",
-      "/table-view.js", "/deal-view.js", "/reveal-view.js", "/conspiracy-view.js", "/motion-events.js",
+      "/table-view.js", "/deal-view.js", "/reveal-view.js", "/conspiracy-view.js",
+    "/drawer-shell.js", "/motion-events.js",
       "/motion-level.js", "/motion.js", "/render-patch.js", "/audio.js",
       "/manifest.webmanifest"].includes(url.pathname);
   if (!cacheable) return;
