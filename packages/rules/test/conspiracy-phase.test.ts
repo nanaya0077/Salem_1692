@@ -62,13 +62,18 @@ test("没有黑猫时直接进 pick 子步", () => {
   assert.equal(game.conspiracy?.catSeatId, null);
 });
 
-test("黑猫在玛丽·沃伦面前时跳过 cat 子步（角色免疫）", () => {
+test("黑猫在玛丽·沃伦面前时跳过 cat 子步（角色免疫），并给公开提示", () => {
   const game = started();
   game.players[3].role = "mary-warren";
   game.players[3].blue.push("blackcat");
   beginConspiracyForTest(game, 0);
   assert.equal(game.conspiracy?.step, "pick");
   assert.equal(game.conspiracy?.catSeatId, null);
+  assert.equal(
+    game.log.some((e) => e.type === "notice" && e.text.includes("玛丽")),
+    true,
+    "跳过黑猫时要给所有人一条提示",
+  );
 });
 
 test("黑猫持有者已没有未揭示的卡时也跳过 cat", () => {
@@ -166,7 +171,7 @@ test("提交的位置被换走后不致错位：越界索引按兜底处理", ()
   for (const player of settled.state.players) assert.equal(player.trials.length, 3);
 });
 
-test("投影：只有正在出手的人拿到 conspiracy，且不含任何 kind", () => {
+test("投影：传染阶段所有座位可见步与聚合计数，候选只给要出手的人", () => {
   const game = started();
   game.players[2].blue.push("blackcat");
   beginConspiracyForTest(game, 1);
@@ -175,17 +180,25 @@ test("投影：只有正在出手的人拿到 conspiracy，且不含任何 kind"
   assert.equal(drawerView.conspiracy?.step, "cat");
   assert.deepEqual(drawerView.conspiracy?.candidates, [0, 1, 2]);
   assert.equal(drawerView.conspiracy?.submitted, false);
+  assert.equal(drawerView.conspiracy?.submittedCount, 0);
+  assert.equal(drawerView.conspiracy?.eligibleCount, 1);
 
-  // cat 阶段其他人不该看到这个键
-  assert.equal(project(game, 0).conspiracy, undefined);
-  assert.equal(project(game, 2).conspiracy, undefined);
+  // 其他人也能看到「现在在干什么、交了几个人」，但看不到候选
+  const other = project(game, 0);
+  assert.equal(other.conspiracy?.step, "cat");
+  assert.equal(other.conspiracy?.drawerId, 1);
+  assert.equal(other.conspiracy?.catSeatId, 2);
+  assert.deepEqual(other.conspiracy?.candidates, []);
+  assert.deepEqual(other.conspiracy?.revealed, []);
+  assert.equal(other.conspiracy?.submitted, false);
+  assert.equal(other.conspiracy?.eligibleCount, 1);
 
   const payload = JSON.stringify(drawerView);
   assert.equal(payload.includes("witch-"), false);
   assert.equal(payload.includes("constable-"), false);
 });
 
-test("投影：pick 阶段所有存活玩家都能看到候选，死人看不到", () => {
+test("投影：pick 阶段所有存活玩家都能看到候选，死人只看到步与计数", () => {
   const game = started();
   game.players[5].alive = false;
   beginConspiracyForTest(game, 0);
@@ -197,7 +210,12 @@ test("投影：pick 阶段所有存活玩家都能看到候选，死人看不到
   assert.equal(alive.conspiracy?.submitted, false);
 
   const dead = project(game, 5);
-  assert.equal(dead.conspiracy, undefined);
+  assert.equal(dead.conspiracy?.step, "pick");
+  assert.equal(dead.conspiracy?.drawerId, 0);
+  assert.deepEqual(dead.conspiracy?.candidates, []);
+  assert.equal(dead.conspiracy?.submitted, false);
+  // 5 号已死，4 号的左邻不可用，所以应提交的是 0–3 四个人
+  assert.equal(dead.conspiracy?.eligibleCount, 4);
 });
 
 test("已提交的人投影里 submitted 为真，别人的提交状态不外泄", () => {
@@ -218,4 +236,36 @@ test("已提交的人投影里 submitted 为真，别人的提交状态不外泄
   assert.equal(other.conspiracy?.eligibleCount, 6);
   // 但投影里既没有 picks 也没有别人的选择
   assert.equal(JSON.stringify(other).includes('"picks"'), false);
+});
+
+test("pick 子步的应提交人数排除左邻已死的人；聚合计数仍公开", () => {
+  const game = started();
+  game.players[5].alive = false;
+  beginConspiracyForTest(game, 0);
+  assert.equal(project(game, 0).conspiracy?.eligibleCount, 4, "0–3 可提交，4 的左邻已死");
+
+  let state = game;
+  for (const id of [0, 1, 2]) {
+    const res = submitConspiracyPick(state, id, 0);
+    assert.equal(res.ok, true);
+    if (res.ok) state = res.state;
+  }
+  assert.equal(project(state, 0).conspiracy?.submittedCount, 3);
+  assert.equal(project(state, 0).conspiracy?.eligibleCount, 4);
+  assert.equal(project(state, 3).conspiracy?.submitted, false);
+  assert.deepEqual(project(state, 5).conspiracy?.candidates, [], "死人只看到步与计数");
+});
+
+test("cat 子步翻出最后一张女巫：对局结束、清掉传染阶段", () => {
+  const game = started();
+  setTrials(game, 2, ["witch", "townspeople", "townspeople"]);
+  game.players[2].blue.push("blackcat");
+  beginConspiracyForTest(game, 1);
+  const res = submitCatReveal(game, 1, 0);
+  assert.equal(res.ok, true);
+  if (!res.ok) return;
+  assert.equal(res.state.winner, "town");
+  assert.equal(res.state.phase, "gameOver");
+  assert.equal(res.state.conspiracy, null, "终局后不再让人提交换牌");
+  assert.equal(res.state.players[2].everWitch, true);
 });

@@ -256,6 +256,7 @@ function drawOne(
   events: GameEvent[],
   forEffect: boolean,
   playerId: number = state.currentPlayerId,
+  resume: "continueDraws" | "none" = "none",
 ): "night" | "ok" | "empty" {
   const cardId = drawTop(state, events);
   if (!cardId) return "empty";
@@ -264,15 +265,18 @@ function drawOne(
     return "night";
   }
   const player = state.players[playerId];
-  player.hand.push(cardId);
   if (!forEffect && state.turn.gilesEligible && state.turn.mainDraws.length < 2) {
     state.turn.mainDraws.push(cardId);
   }
   events.push({ type: "cardDrawn", playerId: player.id, count: 1 });
+  // 黑卡抽到即公开并结算，不进手牌：先入弃牌堆（规则书 docs/rules/rulebook.txt:220-253）。
   if (cardId === "conspiracy") {
-    beginConspiracy(state, player.id, events);
+    state.discard.push(cardId);
+    beginConspiracy(state, player.id, events, resume);
+    return "ok";
   }
-  return state.winner ? "ok" : "ok";
+  player.hand.push(cardId);
+  return "ok";
 }
 
 function beginNight(state: GameState, events: GameEvent[]): void {
@@ -646,7 +650,7 @@ function maybeGilesDraw(state: GameState, events: GameEvent[]): void {
   const firstTwo = state.turn.mainDraws.slice(0, 2);
   if (!firstTwo.every((id) => CARD_CATALOG[id].color === "red")) return;
   events.push({ type: "powerUsed", playerId: actor.id, power: "giles-corey" });
-  drawOne(state, events, true);
+  drawOne(state, events, true, state.currentPlayerId, "continueDraws");
 }
 
 function continueDraws(state: GameState, events: GameEvent[], options: DrawOptions = {}): void {
@@ -659,7 +663,9 @@ function continueDraws(state: GameState, events: GameEvent[], options: DrawOptio
       return;
     }
     state.turn.pendingDraws -= 1;
-    const result = drawOne(state, events, false);
+    const result = drawOne(state, events, false, state.currentPlayerId, "continueDraws");
+    // 抽到传染：阶段挂起，剩余抽牌留给结算后的 resume。
+    if (state.phase === "conspiracy") return;
     if (result === "night") {
       if (options.night) {
         resolveNightInternal(state, options.night, events);
@@ -672,7 +678,7 @@ function continueDraws(state: GameState, events: GameEvent[], options: DrawOptio
   if (state.winner) return;
   if (state.phase === "night") return;
   maybeGilesDraw(state, events);
-  if (state.winner || state.phase === "night") return;
+  if (state.winner || state.phase === "night" || state.phase === "conspiracy") return;
   if (state.turn.ending) {
     advanceTurn(state, events);
   } else {
@@ -787,10 +793,19 @@ function selectableSlots(state: GameState, subjectId: number | null): number[] {
  * 规则层不知道时钟，deadline 不进 GameState。
  * 没有黑猫、或持有者是玛丽·沃伦（免疫）、或持有者已无未揭示的卡时，直接进 pick 子步。
  */
-function beginConspiracy(state: GameState, drawerId: number, events: GameEvent[]): void {
+function beginConspiracy(
+  state: GameState,
+  drawerId: number,
+  events: GameEvent[],
+  resume: "continueDraws" | "none" = "none",
+): void {
   events.push({ type: "conspiracyStarted", drawerId });
   const holder = state.players.find((p) => p.alive && p.blue.includes("blackcat"));
-  const usable = holder && effectiveRole(state, holder.id) !== "mary-warren";
+  const immune = holder !== undefined && effectiveRole(state, holder.id) === "mary-warren";
+  if (immune) {
+    events.push({ type: "notice", text: "黑猫在玛丽·沃伦面前：玛丽免疫黑猫，本次不翻牌。" });
+  }
+  const usable = holder !== undefined && !immune;
   const catSeatId = usable && selectableSlots(state, holder.id).length > 0 ? holder.id : null;
   state.conspiracy = {
     drawerId,
@@ -801,6 +816,7 @@ function beginConspiracy(state: GameState, drawerId: number, events: GameEvent[]
     returnPhase: state.phase,
     returnPlayerId: state.currentPlayerId,
     returnTurn: { ...state.turn },
+    resume,
   };
   state.phase = "conspiracy";
 }
@@ -820,6 +836,12 @@ export function submitCatReveal(state: GameState, playerId: number, trialIndex: 
   next.conspiracy!.catPick = trialIndex;
   next.conspiracy!.step = "pick";
   revealTrial(next, phase.catSeatId, playerId, "conspiracy", events, trial.id);
+  if (next.winner) {
+    // 步①翻出最后一张女巫等直接结束对局：清掉阶段，别再让人提交换牌。
+    next.conspiracy = null;
+    pushEvents(next, events);
+    return { ok: true, state: next, events };
+  }
   pushEvents(next, events);
   return { ok: true, state: next, events };
 }
@@ -885,12 +907,16 @@ export function settleConspiracy(state: GameState): ActionResult {
   }
   if (!next.winner) updateConstable(next);
   if (!next.winner) checkWin(next, events);
+  next.conspiracy = null;
   if (!next.winner) {
     next.phase = phase.returnPhase === "conspiracy" ? "action" : phase.returnPhase;
     next.currentPlayerId = phase.returnPlayerId;
     next.turn = { ...phase.returnTurn };
+    if (phase.resume === "continueDraws" && next.phase === "action") {
+      // 抽牌途中抽到传染：结算后接着把剩余抽牌跑完（可能再抽到黑卡）。
+      continueDraws(next, events);
+    }
   }
-  next.conspiracy = null;
   pushEvents(next, events);
   return { ok: true, state: next, events };
 }
@@ -1108,37 +1134,40 @@ export function project(state: GameState, viewerId: number): Projection {
     };
     projection.pendingReveal = view;
   }
-  // 传染阶段同样只投给要出手的人：正在选的人拿候选位置号，其他人拿不到这个键。
+  // 传染阶段：步与计数对所有人公开；候选位置号/已揭示位置只给要出手的人。
   const conspiracy = state.conspiracy;
   if (conspiracy) {
     const isCatTurn = conspiracy.step === "cat";
-    const acts = isCatTurn ? conspiracy.drawerId === viewerId : viewer.alive;
-    if (acts) {
-      const subjectId = isCatTurn ? conspiracy.catSeatId : leftOf(state, viewerId);
-      const revealed =
-        subjectId === null
-          ? []
-          : state.players[subjectId].trials.reduce<number[]>((acc, t, i) => {
-              if (t.revealed) acc.push(i);
-              return acc;
-            }, []);
-      const alive = state.players.filter((p) => p.alive);
-      projection.conspiracy = {
-        step: conspiracy.step,
-        drawerId: conspiracy.drawerId,
-        catSeatId: conspiracy.catSeatId,
-        submitted:
-          isCatTurn ? conspiracy.catPick !== null : typeof conspiracy.picks[viewerId] === "number",
-        submittedCount: isCatTurn
-          ? conspiracy.catPick !== null
-            ? 1
-            : 0
-          : alive.filter((p) => typeof conspiracy.picks[p.id] === "number").length,
-        eligibleCount: isCatTurn ? 1 : alive.length,
-        candidates: selectableSlots(state, subjectId),
-        revealed,
-      };
-    }
+    const eligible = isCatTurn
+      ? conspiracy.catSeatId === null
+        ? []
+        : [conspiracy.drawerId]
+      : state.players.filter((p) => p.alive && leftOf(state, p.id) !== null);
+    const acts = isCatTurn
+      ? conspiracy.drawerId === viewerId
+      : viewer.alive && leftOf(state, viewerId) !== null;
+    const subjectId = acts ? (isCatTurn ? conspiracy.catSeatId : leftOf(state, viewerId)) : null;
+    const revealed =
+      subjectId === null
+        ? []
+        : state.players[subjectId].trials.reduce<number[]>((acc, t, i) => {
+            if (t.revealed) acc.push(i);
+            return acc;
+          }, []);
+    projection.conspiracy = {
+      step: conspiracy.step,
+      drawerId: conspiracy.drawerId,
+      catSeatId: conspiracy.catSeatId,
+      submitted: isCatTurn ? conspiracy.catPick !== null : typeof conspiracy.picks[viewerId] === "number",
+      submittedCount: isCatTurn
+        ? conspiracy.catPick !== null
+          ? 1
+          : 0
+        : eligible.filter((p) => typeof conspiracy.picks[p.id] === "number").length,
+      eligibleCount: eligible.length,
+      candidates: acts ? selectableSlots(state, subjectId) : [],
+      revealed,
+    };
   }
   return projection;
 }

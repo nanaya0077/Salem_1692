@@ -194,6 +194,12 @@ function runGame(seed: number): string {
       const settled = settleConspiracy(state);
       assert.equal(settled.ok, true, "传染病结算");
       if (settled.ok) state = settled.state;
+      // 丽贝卡补抽等 resume=none 的路径结算后不续抽，本回合行动已经用掉，直接收尾。
+      if (state.phase === "action" && state.turn.actionTaken) {
+        const ended = endTurn(state);
+        assert.equal(ended.ok, true, "传染结算后结束回合");
+        if (ended.ok) state = ended.state;
+      }
       continue;
     }
     if (state.phase !== "action") throw new Error("unexpected phase " + state.phase);
@@ -210,7 +216,15 @@ function runGame(seed: number): string {
       }
     } else {
       const result = drawTwo(state);
-      assert.equal(result.ok, true, "抽牌");
+      assert.equal(
+        result.ok,
+        true,
+        "抽牌 " +
+          (result.ok ? "" : result.reason) +
+          " seed=" + seed + " step=" + step +
+          " phase=" + state.phase +
+          " actionTaken=" + state.turn.actionTaken,
+      );
       if (result.ok) state = result.state;
     }
     if (state.phase === "action" && state.turn.actionTaken) {

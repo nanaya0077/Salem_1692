@@ -19,6 +19,9 @@ import {
   resolveConspiracyForTest,
   resolvePendingReveal,
   resolveNight,
+  settleConspiracy,
+  submitCatReveal,
+  submitConspiracyPick,
   beginNightForTest,
   confess,
   endTurn,
@@ -64,6 +67,33 @@ function settlePending(state: GameState): { state: GameState; events: GameEvent[
     cur = result.state;
   }
   return { state: cur, events };
+}
+
+/** 假服务端：传染阶段按「取第一张未揭示」推进黑猫揭示与全体换牌，然后结算。 */
+function settleConspiracyWithDefaults(state: GameState): GameState {
+  let cur = state;
+  if (cur.conspiracy?.step === "cat") {
+    const cat = cur.conspiracy.catSeatId;
+    assert.notEqual(cat, null, "cat 子步应有黑猫持有者");
+    if (cat === null) return cur;
+    const slot = cur.players[cat].trials.findIndex((t) => !t.revealed);
+    const revealed = submitCatReveal(cur, cur.conspiracy.drawerId, slot);
+    assert.equal(revealed.ok, true, "揭示黑猫持有者");
+    if (revealed.ok) cur = revealed.state;
+  }
+  for (const player of cur.players) {
+    if (!player.alive) continue;
+    const left = cur.players[(player.id + 1) % cur.players.length];
+    if (!left || !left.alive) continue;
+    const slot = left.trials.findIndex((t) => !t.revealed);
+    if (slot < 0) continue;
+    const picked = submitConspiracyPick(cur, player.id, slot);
+    assert.equal(picked.ok, true, "提交传染选择");
+    if (picked.ok) cur = picked.state;
+  }
+  const settled = settleConspiracy(cur);
+  assert.equal(settled.ok, true, "传染结算");
+  return settled.ok ? settled.state : cur;
 }
 
 test("中文旧版默认配比：9 人 1 女巫、共 35 张身份卡", () => {
@@ -437,6 +467,61 @@ test("传染：黑猫持有者先被翻一张，然后全体从左邻换一张�
   resolveConspiracyForTest(game, 0);
   assert.equal(game.players[0].everWitch, true);
   assert.equal(game.players.every((p) => p.trials.length === 2), true);
+});
+
+test("传染抽到即弃并进入 conspiracy；结算后继续抽第二张", () => {
+  const game = baseGame();
+  for (const player of game.players) player.blue = [];
+  game.players[0].hand = [];
+  game.deck = ["conspiracy", "accusation", "night"];
+  const result = drawTwo(game);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const started = result.state;
+  assert.equal(started.phase, "conspiracy", "抽到传染立即进入阶段");
+  assert.equal(started.players[0].hand.includes("conspiracy"), false, "传染不进手牌");
+  assert.equal(started.discard.filter((c) => c === "conspiracy").length, 1, "传染先入弃牌堆");
+  assert.equal(started.conspiracy?.step, "pick", "没有黑猫，直接进换牌子步");
+  assert.equal(result.events.some((e) => e.type === "conspiracyStarted" && e.drawerId === 0), true);
+  const settled = settleConspiracyWithDefaults(started);
+  assert.equal(settled.phase, "action", "结算后回到行动阶段");
+  assert.deepEqual(settled.players[0].hand, ["accusation"], "结算后继续抽第二张");
+});
+
+test("传染抽到即弃后，黑猫揭示与左邻换牌仍生效", () => {
+  const game = baseGame();
+  for (const player of game.players) player.blue = [];
+  game.players[1].blue.push("blackcat");
+  setTrials(game, 1, ["townspeople", "townspeople"]);
+  game.players[0].hand = [];
+  game.deck = ["conspiracy", "accusation", "night"];
+  const result = drawTwo(game);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.state.phase, "conspiracy");
+  assert.equal(result.state.conspiracy?.step, "cat", "有黑猫，先进揭示子步");
+  const settled = settleConspiracyWithDefaults(result.state);
+  assert.equal(settled.players[1].trials.filter((t) => t.revealed).length, 1, "黑猫持有者先被翻一张");
+  assert.equal(settled.log.some((e) => e.type === "conspiracySwap"), true, "左邻换牌仍发生");
+  assert.equal(settled.discard.filter((c) => c === "conspiracy").length, 1);
+  assert.equal(settled.players[0].hand.includes("conspiracy"), false);
+});
+
+test("传染进弃牌堆后，洗牌能再次抽到并仍按抽到即弃处理", () => {
+  const game = baseGame();
+  for (const player of game.players) player.blue = [];
+  game.players[0].hand = [];
+  game.discard = ["conspiracy"];
+  game.deck = [];
+  const result = drawTwo(game);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.state.phase, "conspiracy");
+  assert.equal(result.state.discard.includes("conspiracy"), true, "再次抽到仍进弃牌堆");
+  const settled = settleConspiracyWithDefaults(result.state);
+  assert.equal(settled.phase, "night", "第二张抽到夜晚");
+  assert.equal(settled.discard.includes("conspiracy"), true);
+  assert.equal(settled.players[0].hand.length, 0);
 });
 
 test("投影：不泄漏牌堆、他人手牌与未揭示身份；自己可见", () => {

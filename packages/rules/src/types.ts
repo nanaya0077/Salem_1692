@@ -139,9 +139,14 @@ export interface ConspiracyState {
   returnPhase: Phase;
   returnPlayerId: number;
   returnTurn: TurnState;
+  /**
+   * 结算后是否接着跑本回合剩余的抽牌。
+   * `continueDraws` = 抽两张/夜晚续抽/安妮补抽途中抽到传染；`none` = 丽贝卡补抽等一次性效果。
+   */
+  resume: "continueDraws" | "none";
 }
 
-/** 传染阶段的对外投影：只给位置号与「我是否已提交」，不给卡 id，也不给别人的提交状态。 */
+/** 传染阶段的对外投影：所有座位都能看到步与计数；候选位置号只给要出手的人。 */
 export interface ConspiracyView {
   step: "cat" | "pick";
   drawerId: number;
@@ -151,12 +156,11 @@ export interface ConspiracyView {
   /** 本步聚合：已提交人数与应提交人数。只给计数，不下发「谁交了」。 */
   submittedCount: number;
   eligibleCount: number;
-  /** 候选位置号，长度 = 被选人当前的身份卡张数。 */
+  /** 候选位置号，长度 = 被选人当前的身份卡张数；只有要出手的人拿得到。 */
   candidates: number[];
-  /** 其中已揭示、因此不可选的位置号。 */
+  /** 其中已揭示、因此不可选的位置号；只有要出手的人拿得到。 */
   revealed: number[];
 }
-
 
 export interface TurnState {
   playerId: number;
