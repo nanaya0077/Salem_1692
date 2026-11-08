@@ -90,8 +90,12 @@
           <span title="牌堆">牌堆 <b id="deckCount">0</b></span>
           <span title="弃牌堆">弃牌 <b id="discardCount">0</b></span>
         </div>
-        <button id="logBtn" class="icon-btn" title="日志">≡</button>
       </header>
+
+      <div class="top-actions">
+        <button id="motionToggle" class="motion-fab" type="button" title="动效：全开（点击切换）" aria-label="动效：全开，点击切换">✦</button>
+        <button id="logBtn" class="log-btn" type="button" title="对局信息" aria-label="对局信息">对局信息</button>
+      </div>
 
       <div id="targetBanner" class="target-banner" hidden>
         <span id="targetText"></span>
@@ -285,13 +289,14 @@
       </div>
     </div>
 
-    <button id="revealBanner" class="reveal-banner" type="button" hidden>
-      <img id="revealBannerImage" class="reveal-banner-image" alt="" hidden />
-      <span class="reveal-banner-copy">
-        <span id="revealBannerKicker" class="reveal-banner-kicker"></span>
-        <span id="revealBannerTitle" class="reveal-banner-title"></span>
-      </span>
-    </button>
+    <div id="deathOverlay" class="death-veil" hidden role="status" aria-live="assertive">
+      <div class="death-card">
+        <div id="deathKicker" class="death-kicker">DEATH</div>
+        <h2 id="deathTitle">有人离场</h2>
+        <p id="deathText"></p>
+        <p class="death-hint">点击任意处跳过</p>
+      </div>
+    </div>
 
     <div id="toast" class="toast" hidden></div>
   </div>

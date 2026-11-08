@@ -7,7 +7,8 @@
 // salem-v10：翻身份卡的横幅挪到桌面正中空白区，不压轮次条与手牌。
 // salem-v9：身份卡改双面 3D 翻牌，翻身份卡的全桌横幅进壳。
 // salem-v8：建房页的「线下模式」勾选项与大厅里的状态提示进壳。
-const VERSION = "salem-v11";
+// salem-v16：翻牌/揭示/死亡与夜晚→黎明演出；横幅 1080ms 非阻塞，死亡揭示 1200ms 可跳。
+const VERSION = "salem-v16";
 const SHELL = [
   "/",
   "/styles.css",
@@ -18,6 +19,11 @@ const SHELL = [
   "/table-view.js",
   "/deal-view.js",
   "/reveal-view.js",
+  "/motion-events.js",
+  "/motion-level.js",
+  "/motion.js",
+  "/render-patch.js",
+  "/audio.js",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -58,7 +64,9 @@ self.addEventListener("fetch", (event) => {
 
   const cacheable = url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/") ||
     ["/styles.css", "/app.js", "/avatar-normalize.js", "/profile-store.js", "/reconnect.js",
-      "/table-view.js", "/deal-view.js", "/reveal-view.js", "/manifest.webmanifest"].includes(url.pathname);
+      "/table-view.js", "/deal-view.js", "/reveal-view.js", "/motion-events.js",
+      "/motion-level.js", "/motion.js", "/render-patch.js", "/audio.js",
+      "/manifest.webmanifest"].includes(url.pathname);
   if (!cacheable) return;
 
   event.respondWith(
@@ -74,3 +82,4 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+

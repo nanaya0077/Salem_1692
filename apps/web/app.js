@@ -21,6 +21,23 @@ import { cleanName, createProfileStore, initialOf } from "./profile-store.js";
 import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE } from "./table-view.js";
 import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
 import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText, revealBannerText } from "./reveal-view.js";
+import {
+  armSkip,
+  cycleMotionLevel,
+  enqueue,
+  getMotionLevel,
+  initMotion,
+  isBlocked,
+  motionDenied,
+  motionLabel,
+  motionPress,
+  motionTimerWarn,
+  motionToast,
+  resetMotion,
+  startBlock,
+} from "./motion.js";
+import { patchKeyed } from "./render-patch.js";
+import { initAudio, playSfx, setAudioLevel, setAudioPhase, unlockAudio } from "./audio.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -67,7 +84,15 @@ const S = {
   seenLog: null,
   revealQueue: [],
   revealTimer: null,
+  revealDelay: null,
+  lastPhase: null,
+  suppressPhaseEntrance: false,
+  phaseTimer: null,
+  deathShowing: false,
+  deathTimer: null,
   quotaWarned: false,
+  audioPhase: null,
+  timerWarnKey: null,
 };
 // 调试入口：浏览器控制台与联调脚本可直接读当前状态。
 globalThis.__salem = S;
@@ -94,6 +119,8 @@ function toast(text, ok = false) {
   el.textContent = text;
   el.className = "toast" + (ok ? " ok" : "");
   el.hidden = false;
+  motionToast(el, ok);
+  if (!ok) motionDenied(el);
   clearTimeout(S.toastTimer);
   S.toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
 }
@@ -339,6 +366,7 @@ function commandId() {
 }
 
 function act(action) {
+  if (isBlocked()) return;
   send({ type: "action", commandId: commandId(), action });
 }
 
@@ -676,6 +704,45 @@ function renderDeal() {
       : "逐张点开你的身份卡。";
 }
 
+// 手牌是第一块 keyed patch：同一张牌跨 projection 复用节点，
+// 只有新入手的卡播一次入场，旧卡与重绘不再重播。
+function renderHand(ids, locked) {
+  const hand = $("hand");
+  const seen = new Map();
+  const items = (ids ?? []).map((id) => {
+    const nth = (seen.get(id) ?? 0) + 1;
+    seen.set(id, nth);
+    return { id, key: id + ":" + nth };
+  });
+  if (!items.length) {
+    hand.innerHTML = '<p class="muted">手牌为空</p>';
+    return;
+  }
+  if (!hand.querySelector("[data-key]")) hand.innerHTML = "";
+  const { entered } = patchKeyed(hand, items, {
+    keyOf: (item) => item.key,
+    create: (item) => {
+      const c = card(item.id);
+      const el = document.createElement("button");
+      el.className = "card " + c.color;
+      el.dataset.card = item.id;
+      el.title = c.name;
+      el.innerHTML =
+        (c.image ? '<img src="/' + esc(c.image) + '" alt="" loading="lazy" />' : "") +
+        (c.points ? '<span class="pts">' + c.points + "</span>" : "") +
+        '<span class="label">' + esc(c.name) + "</span>";
+      return el;
+    },
+    update: (el, item) => {
+      const c = card(item.id);
+      el.disabled = locked;
+      el.className = "card " + c.color;
+      el.title = c.name;
+    },
+  });
+  enqueue(entered.map((el) => ({ type: "enter", el })));
+}
+
 function renderGame() {
   const p = S.projection;
   if (!p) {
@@ -685,6 +752,11 @@ function renderGame() {
     $("actionBar").innerHTML = "";
     $("centerHint").textContent = "正在同步对局…";
     return;
+  }
+  if (p.phase !== S.audioPhase) {
+    S.audioPhase = p.phase;
+    setAudioPhase(p.phase);
+    if (p.phase === "dawn") playSfx("sfx.phase.dawn");
   }
   const my = p.self;
   const locked = revealLocked();
@@ -713,13 +785,7 @@ function renderGame() {
     selfAbilityLine(my.role) + "</div>" +
     '<div class="self-trials trial-strip">' + trialStrip(my.trials, S.seatId) + "</div>";
 
-  $("hand").innerHTML = (my.hand ?? []).map((id) => {
-    const c = card(id);
-    return '<button class="card ' + c.color + '"' + (locked ? " disabled" : "") + ' data-card="' + esc(id) + '" title="' + esc(c.name) + '">' +
-      (c.image ? '<img src="/' + esc(c.image) + '" alt="" loading="lazy" />' : "") +
-      (c.points ? '<span class="pts">' + c.points + "</span>" : "") +
-      '<span class="label">' + esc(c.name) + "</span></button>";
-  }).join("") || '<p class="muted">手牌为空</p>';
+  renderHand(my.hand ?? [], locked);
 
   $("deckCount").textContent = p.deckCount;
   $("discardCount").textContent = p.discardCount;
@@ -989,13 +1055,20 @@ function formatEvent(e) {
   }
 }
 
-/** 横幅停留时长：够读完「谁翻了谁 + 翻出什么」，又不至于挡住下一步操作。 */
-const REVEAL_BANNER_MS = 4200;
+/** 翻牌先转 600ms，横幅再按 300 入 / 600 停 / 180 出；单条总占位 1080ms。 */
+const REVEAL_FLIP_MS = 600;
+const REVEAL_BANNER_MS = 1080;
+const REVEAL_BANNER_REDUCED_MS = 920;
+const REVEAL_QUEUE_MAX = 3;
+const DEATH_MS = 1200;
+const DEATH_REDUCED_MS = 400;
 
 /**
  * 翻身份卡是公开事件，规则层已经把它写进 `state.log`（trialRevealed），全桌都在同一条投影里。
  * 这里只做一件事：把本次投影新增的那几条挑出来，排队播给所有人看。
  * 首次进入或换局（日志变短）一律当作已读，免得一进房间就把历史重放一遍。
+ * 同一条投影里超过 3 条揭示只合并展示前 3 条；多出的写进日志，不再逐条排队。
+ * 死亡也在同一条投影里合并成一次公开演出，绝不 per-seat。
  */
 function announceReveals() {
   const log = S.projection?.log ?? [];
@@ -1003,19 +1076,40 @@ function announceReveals() {
     S.seenLog = log.length;
     return;
   }
-  for (const event of log.slice(S.seenLog)) {
-    if (event?.type === "trialRevealed") S.revealQueue.push(event);
-  }
+  const fresh = log.slice(S.seenLog);
+  const reveals = fresh.filter((event) => event?.type === "trialRevealed");
+  const deaths = fresh.filter((event) => event?.type === "playerDied" || event?.type === "matchmakerBroke");
   S.seenLog = log.length;
-  if (S.revealQueue.length && !S.revealTimer) showNextReveal();
+
+  if (reveals.length) {
+    S.revealQueue.push(...reveals.slice(0, REVEAL_QUEUE_MAX));
+    if (reveals.length > REVEAL_QUEUE_MAX) {
+      toast("同时揭示 " + reveals.length + " 条，已合并展示前 " + REVEAL_QUEUE_MAX + " 条");
+    }
+    scheduleNextReveal();
+  }
+  if (deaths.length) showDeath(deaths);
+}
+
+function scheduleNextReveal() {
+  if (S.revealDelay || S.revealTimer || !S.revealQueue.length) return;
+  const level = getMotionLevel();
+  const delay = level === "reduced" ? 200 : level === "off" ? 0 : REVEAL_FLIP_MS;
+  S.revealDelay = setTimeout(() => {
+    S.revealDelay = null;
+    showNextReveal();
+  }, delay);
 }
 
 function showNextReveal() {
+  clearTimeout(S.revealDelay);
+  S.revealDelay = null;
   const event = S.revealQueue.shift();
   if (!event) {
     S.revealTimer = null;
     return;
   }
+  playSfx("sfx.reveal.flip");
   const view = revealBannerText(event, { nameOf: seatName, label: trialLabel });
   const face = card(trialFaceCardId(event.kind ?? "townspeople"));
   const image = $("revealBannerImage");
@@ -1030,20 +1124,115 @@ function showNextReveal() {
   $("revealBannerKicker").textContent = view.kicker;
   $("revealBannerTitle").textContent = view.title;
   $("revealBanner").hidden = false;
+  const ms = getMotionLevel() === "reduced" ? REVEAL_BANNER_REDUCED_MS : REVEAL_BANNER_MS;
   S.revealTimer = setTimeout(() => {
     $("revealBanner").hidden = true;
     S.revealTimer = null;
-    if (S.revealQueue.length) showNextReveal();
-  }, REVEAL_BANNER_MS);
+    if (S.revealQueue.length) scheduleNextReveal();
+  }, ms);
+}
+
+function deathEntries(events) {
+  const entries = new Map();
+  for (const event of events) {
+    if (event.type === "playerDied" && event.playerId != null) {
+      entries.set(Number(event.playerId), event.cause ? String(event.cause) : "死亡");
+    }
+    if (event.type === "matchmakerBroke" && Array.isArray(event.playerIds)) {
+      for (const id of event.playerIds) entries.set(Number(id), "情侣连锁");
+    }
+  }
+  return [...entries].map(([id, cause]) => ({ id, cause }));
+}
+
+function showDeath(events) {
+  const entries = deathEntries(events);
+  if (!entries.length) return;
+  const selfDead = entries.some((entry) => entry.id === S.seatId);
+  $("deathKicker").textContent = selfDead ? "YOU DIED" : "DEATH";
+  $("deathTitle").textContent = entries.length === 1
+    ? seatName(entries[0].id) + " 死亡"
+    : entries.length + " 人离场";
+  $("deathText").textContent = entries.map((entry) => seatName(entry.id) + " · " + entry.cause).join("；");
+  $("deathOverlay").dataset.self = selfDead ? "1" : "0";
+  $("deathOverlay").hidden = false;
+  $("deathOverlay").classList.add("show");
+  S.deathShowing = true;
+  playSfx("sfx.life.death");
+
+  const level = getMotionLevel();
+  const duration = level === "reduced" ? DEATH_REDUCED_MS : DEATH_MS;
+  const deadline = Number(S.private?.turnDeadline ?? 0);
+  const remaining = deadline ? deadline - Date.now() : Infinity;
+  // 截止保护：剩下的时间不够演出 + 500ms 缓冲，就不再 gate 输入，只静态呈现。
+  let gated = false;
+  if (level !== "off" && remaining > duration + 500) {
+    gated = startBlock("fx.life.death", { duration, reducedMax: DEATH_REDUCED_MS });
+  }
+  clearTimeout(S.deathTimer);
+  if (!gated) {
+    S.deathTimer = setTimeout(hideDeath, level === "off" ? 700 : duration);
+  }
+}
+
+function hideDeath() {
+  clearTimeout(S.deathTimer);
+  S.deathTimer = null;
+  S.deathShowing = false;
+  $("deathOverlay").hidden = true;
+  $("deathOverlay").classList.remove("show");
+}
+
+function setOverlayVisibility(phase) {
+  $("dealOverlay").hidden = phase !== "deal";
+  $("nightOverlay").hidden = phase !== "night";
+  $("dawnOverlay").hidden = phase !== "dawn";
+  $("overOverlay").hidden = phase !== "gameOver";
+}
+
+/** 夜晚入场：600ms 压暗 + 星幕升起；skip 时直接落到终态，不 gate 任何服务端状态。 */
+function startNightEntrance() {
+  const el = $("nightOverlay");
+  el.classList.remove("entering", "settled");
+  el.classList.add("entering");
+  const gated = startBlock("fx.phase.night", { duration: 600, reducedMax: 200, cap: 900 });
+  if (!gated) el.classList.remove("entering");
+}
+
+/** 夜晚 → 黎明：375ms 两层交叉淡入，不做全屏拉幕，也不换页。 */
+function startDawnCrossfade() {
+  const night = $("nightOverlay");
+  const dawn = $("dawnOverlay");
+  clearTimeout(S.phaseTimer);
+  night.hidden = false;
+  dawn.hidden = false;
+  night.classList.add("leaving");
+  dawn.classList.add("entering");
+  S.phaseTimer = setTimeout(() => {
+    S.phaseTimer = null;
+    if (S.lastPhase === "dawn") {
+      night.hidden = true;
+      night.classList.remove("leaving");
+      dawn.classList.remove("entering");
+    }
+  }, 375);
 }
 
 function renderOverlays() {
   const p = S.projection;
   const phase = p?.phase;
-  $("dealOverlay").hidden = phase !== "deal";
-  $("nightOverlay").hidden = phase !== "night";
-  $("dawnOverlay").hidden = phase !== "dawn";
-  $("overOverlay").hidden = phase !== "gameOver";
+  if (phase !== S.lastPhase) {
+    const previous = S.lastPhase;
+    const suppress = S.suppressPhaseEntrance;
+    S.suppressPhaseEntrance = false;
+    S.lastPhase = phase;
+    // 重连/被踢回来的第一帧只落静态终态，不把夜晚入场或黎明交叉重播一遍。
+    if (suppress) {
+      setOverlayVisibility(phase);
+    } else if (phase === "dawn" && previous === "night") startDawnCrossfade();
+    else setOverlayVisibility(phase);
+    if (!suppress && phase === "night") startNightEntrance();
+  }
   $("chatBar").hidden = !(S.room && S.room.phase !== "lobby" && phase !== "gameOver");
   if (phase === "deal") renderDeal();
   if (phase === "night") renderNight();
@@ -1139,12 +1328,25 @@ function updateTimers() {
   const offline = (S.projection?.room ?? S.room)?.offline === true;
   if (offline) {
     $("turnBadge").textContent = S.turnLabel + " · 不限时";
+    motionTimerWarn($("turnBadge"), false);
+    S.timerWarnKey = null;
     for (const id of ["dealTimer", "dawnTimer", "nightTimer"]) $(id).textContent = "不限时";
     return;
   }
   const myTurnNow = S.projection?.phase === "action" && S.projection.currentPlayerId === S.seatId;
   const actionLeft = myTurnNow && p?.turnDeadline ? seconds(p.turnDeadline) : null;
   $("turnBadge").textContent = S.turnLabel + (actionLeft !== null ? " · " + actionLeft + "s" : "");
+  const warn = actionLeft !== null && actionLeft <= 10;
+  motionTimerWarn($("turnBadge"), warn);
+  if (warn) {
+    const key = String(p?.turnDeadline ?? "");
+    if (S.timerWarnKey !== key) {
+      S.timerWarnKey = key;
+      playSfx("sfx.timer.warn");
+    }
+  } else {
+    S.timerWarnKey = null;
+  }
   if (S.deal?.deadline) $("dealTimer").textContent = seconds(S.deal.deadline) + "s";
   if (p?.dawn?.deadline) $("dawnTimer").textContent = seconds(p.dawn.deadline) + "s";
   if (p?.night?.deadline) $("nightTimer").textContent = seconds(p.night.deadline) + "s";
@@ -1445,6 +1647,7 @@ function beginPlay(cardId, asWitness = false, useAbigail = false) {
 }
 
 function sendPlay(cardId, targetId, sourceId, asWitness, useAbigail = false, blueCardId, discardIndexes) {
+  if (!isBlocked()) playSfx("sfx.card.play");
   const play = { cardId, targetId, sourceId, asWitness: Boolean(asWitness), useAbigail: Boolean(useAbigail) };
   if (blueCardId) play.blueCardId = blueCardId;
   if (discardIndexes?.length) play.discardIndexes = discardIndexes.slice();
@@ -1534,6 +1737,15 @@ function resetRoomState() {
     clearTimeout(S.revealTimer);
     S.revealTimer = null;
   }
+  if (S.revealDelay) {
+    clearTimeout(S.revealDelay);
+    S.revealDelay = null;
+  }
+  clearTimeout(S.phaseTimer);
+  S.phaseTimer = null;
+  S.lastPhase = null;
+  S.suppressPhaseEntrance = true;
+  hideDeath();
   $("revealBanner").hidden = true;
   closeModal();
   closeProfile();
@@ -1603,7 +1815,45 @@ function copyInvite() {
   else toast(url);
 }
 
+function syncMotionButton() {
+  const btn = $("motionToggle");
+  if (!btn) return;
+  const level = getMotionLevel();
+  const label = motionLabel(level);
+  btn.dataset.level = level;
+  btn.title = "动效：" + label + "（点击切换）";
+  btn.setAttribute("aria-label", "动效：" + label + "，点击切换");
+}
+
 function bind() {
+  const motionToggle = $("motionToggle");
+  if (motionToggle) {
+    motionToggle.addEventListener("click", () => {
+      cycleMotionLevel();
+      syncMotionButton();
+    });
+  }
+  window.addEventListener("motion:level", () => {
+    syncMotionButton();
+    setAudioLevel(getMotionLevel());
+  });
+  // block 结束（超时或用户跳过）时把演出落到终态；调度器只发事件，不碰游戏状态。
+  window.addEventListener("motion:blockend", (event) => {
+    if (event.detail?.eventId === "fx.phase.night") $("nightOverlay").classList.remove("entering");
+    if (event.detail?.eventId === "fx.life.death") hideDeath();
+  });
+  // 首次真实手势里同步解锁音频；pointerdown 覆盖鼠标/触摸，其余是 iOS 的保险。
+  for (const type of ["touchend", "click", "keydown"]) {
+    document.addEventListener(type, unlockAudio, true);
+  }
+  document.addEventListener("pointerdown", (event) => {
+    unlockAudio();
+    const target = event.target.closest?.("button, .card, .seat-card");
+    if (target && !target.disabled) {
+      motionPress(target);
+      playSfx("sfx.ui.tap");
+    }
+  }, true);
   $("createBtn").addEventListener("click", () => {
     const raw = $("nameInput").value.trim();
     if (!raw) { $("landingError").textContent = "请先填一个昵称。"; return; }
@@ -1711,18 +1961,7 @@ function bind() {
     const button = event.target.closest("[data-card]");
     if (button) openCardModal(button.dataset.card);
   });
-  // 横幅本身就能点：点开看牌面，同时把这条收掉，后面的排队接着播。
-  $("revealBanner").addEventListener("click", () => {
-    const banner = $("revealBanner");
-    const cardId = banner.dataset.card;
-    banner.hidden = true;
-    if (S.revealTimer) {
-      clearTimeout(S.revealTimer);
-      S.revealTimer = null;
-    }
-    if (S.revealQueue.length) showNextReveal();
-    if (cardId) openCardModal(cardId);
-  });
+  // 横幅是纯展示层（CSS pointer-events:none），不挡选牌/出牌；到点由定时器收起。
   $("actionBar").addEventListener("click", (event) => {
     const button = event.target.closest("[data-act]");
     if (!button) return;
@@ -1891,7 +2130,22 @@ function bind() {
   });
 }
 
+function syncViewportHeight() {
+  const viewport = window.visualViewport;
+  const height = viewport ? viewport.height : window.innerHeight;
+  if (!Number.isFinite(height) || height <= 0) return;
+  document.documentElement.style.setProperty("--app-vh", Math.round(height) + "px");
+}
+
 async function boot() {
+  syncViewportHeight();
+  window.addEventListener("resize", syncViewportHeight);
+  window.visualViewport?.addEventListener("resize", syncViewportHeight);
+  window.visualViewport?.addEventListener("scroll", syncViewportHeight);
+  initMotion();
+  initAudio(getMotionLevel());
+  armSkip();
+  syncMotionButton();
   bind();
   const params = new URLSearchParams(location.search);
   const urlCode = (params.get("code") ?? "").toUpperCase();

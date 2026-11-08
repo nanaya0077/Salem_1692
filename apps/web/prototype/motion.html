@@ -1,377 +1,354 @@
 <!doctype html>
-<html lang="zh-CN" data-motion="full">
+<html lang="zh-CN" data-level="full">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>动效原型 · 三个招牌场景</title>
-<style>
-  /* 原型，不是成品：只验证节奏、强度、信息可读性。
-     时长全部走 CSS 变量，JS 只切 data-motion，跟 G5 的「单一来源 + dataset」一致。 */
-  :root {
-    --ink: #0b0806;
-    --paper: #efe3c8;
-    --gold: #d8a94c;
-    --muted: #9a8c74;
-    --fx-flip: 600ms;
-    --fx-banner-in: 300ms;
-    --fx-banner-hold: 600ms;
-    --fx-banner-out: 180ms;
-    --fx-death: 1200ms;
-    --fx-dawn: 375ms;
-    --fx-tap: 140ms;
-    --ease-flip: cubic-bezier(.2, .7, .3, 1);
-  }
-  /* 减弱档：不转 3D，只交叉淡入；位移全关；时长压到 200ms 级。 */
-  [data-motion="reduced"] {
-    --fx-flip: 200ms;
-    --fx-banner-in: 200ms;
-    --fx-banner-hold: 600ms;
-    --fx-banner-out: 120ms;
-    --fx-death: 400ms;
-    --fx-dawn: 200ms;
-  }
-  /* 关档：不演，直接落终态。 */
-  [data-motion="off"] {
-    --fx-flip: 0ms;
-    --fx-banner-in: 0ms;
-    --fx-banner-hold: 0ms;
-    --fx-banner-out: 0ms;
-    --fx-death: 0ms;
-    --fx-dawn: 0ms;
-    --fx-tap: 0ms;
-  }
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17110c">
+  <title>女巫镇 · 动效原型</title>
+  <style>
+    :root {
+      --ink: #f1e6d2;
+      --muted: #b9a98f;
+      --gold: #d8b46a;
+      --panel: #241a12;
+      --line: rgba(216, 180, 106, 0.28);
+      --fast: 120ms;
+      --base: 220ms;
+      --slow: 375ms;
+      --reveal: 600ms;
+      --ease-out: cubic-bezier(.2, 0, 0, 1);
+      --ease-in: cubic-bezier(.4, 0, 1, 1);
+      --ease-flip: cubic-bezier(.2, .8, .2, 1);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #0e0a07; color: var(--ink); }
+    body {
+      font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background:
+        radial-gradient(1200px 800px at 70% -10%, #3a2818 0%, transparent 55%),
+        radial-gradient(900px 700px at 0% 100%, #20150d 0%, transparent 60%),
+        #0e0a07;
+    }
+    .shell { width: min(1040px, 100%); display: grid; gap: 14px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: 1.05rem; letter-spacing: .12em; font-weight: 600; color: var(--gold); }
+    header p { margin: 0; color: var(--muted); font-size: .78rem; }
+    .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+    .seg button, .ghost {
+      appearance: none; border: 1px solid var(--line); background: rgba(36, 26, 18, .82);
+      color: var(--ink); border-radius: 999px; padding: 7px 12px; font: inherit; font-size: .76rem;
+      cursor: pointer; transition: background var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
+    }
+    .seg button[aria-pressed="true"] { background: var(--gold); color: #1b120a; border-color: var(--gold); }
+    .seg button:active, .ghost:active { transform: scale(.96); }
+    .layout { display: grid; grid-template-columns: 1fr 310px; gap: 18px; align-items: start; }
+    @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
+    .phone {
+      position: relative; width: min(390px, 100%); height: min(844px, 86vh); min-height: 560px;
+      margin: 0 auto; border-radius: 28px; overflow: hidden; border: 1px solid rgba(216, 180, 106, .35);
+      background: #17110c; box-shadow: 0 24px 80px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(255, 255, 255, .03);
+    }
+    .phone::before {
+      content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+      background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.025) 0 1px, transparent 1px 5px);
+      mix-blend-mode: overlay;
+    }
+    .topbar { position: absolute; inset: 0 0 auto; z-index: 4; display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; font-size: .7rem; color: var(--muted); }
+    .topbar b { color: var(--ink); font-weight: 500; }
+    .stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 64px 20px 86px; }
+    .scene { position: absolute; inset: 0; display: grid; place-items: center; padding: 64px 20px 90px; opacity: 0; pointer-events: none; transition: opacity var(--base) var(--ease-out); }
+    .scene.active { opacity: 1; pointer-events: auto; }
+    .caption {
+      position: absolute; inset: auto 18px 22px; z-index: 4; margin: 0; padding: 7px 10px;
+      color: #d8c9b0; font-size: .72rem; line-height: 1.7; text-align: center;
+      background: rgba(10, 7, 5, .58); border: 1px solid rgba(216, 180, 106, .14);
+      border-radius: 10px; backdrop-filter: blur(4px);
+    }
+    .caption b { color: var(--gold); font-weight: 500; }
 
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    min-height: 100dvh;
-    background: radial-gradient(circle at 50% 0%, #1b1510, #0b0806 60%);
-    color: var(--paper);
-    font: 15px/1.5 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    display: flex;
-    justify-content: center;
-  }
+    /* 场景 1：翻牌 + 揭示横幅 */
+    .flip-wrap { display: grid; justify-items: center; gap: 18px; }
+    .trial-card { width: 172px; aspect-ratio: 2 / 3; perspective: 900px; }
+    .trial-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform var(--reveal) var(--ease-flip); }
+    .trial-card.flipped .trial-inner { transform: rotateY(180deg); }
+    .face { position: absolute; inset: 0; border-radius: 12px; backface-visibility: hidden; background-size: cover; background-position: center; border: 1px solid rgba(216,180,106,.55); box-shadow: 0 18px 38px rgba(0,0,0,.45); }
+    .face.back { background-image: url("/assets/cards/zh/back-trial.png"); }
+    .face.front { transform: rotateY(180deg); background-image: url("/assets/cards/zh/witch.png"); }
+    .reveal {
+      position: absolute; left: 14px; right: 14px; bottom: 88px; z-index: 5;
+      display: grid; grid-template-columns: 54px 1fr; gap: 10px; align-items: center;
+      padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line);
+      background: rgba(24, 17, 11, .94); box-shadow: 0 14px 40px rgba(0,0,0,.5);
+      transform: translateY(14px); opacity: 0; pointer-events: none;
+    }
+    .reveal.in { animation: reveal-in 300ms var(--ease-out) forwards; }
+    .reveal.hold { opacity: 1; transform: translateY(0); }
+    .reveal.out { animation: reveal-out 180ms var(--ease-in) forwards; }
+    .reveal img { width: 54px; height: 76px; object-fit: cover; border-radius: 6px; }
+    .reveal .kicker { color: var(--gold); font-size: .66rem; letter-spacing: .08em; }
+    .reveal .title { font-size: .9rem; line-height: 1.45; margin-top: 3px; }
+    @keyframes reveal-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes reveal-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(8px); } }
 
-  .phone {
-    width: 390px;
-    max-width: 100vw;
-    min-height: 100dvh;
-    padding: 12px 12px 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
+    /* 场景 2：死亡 */
+    .death { display: grid; justify-items: center; gap: 12px; text-align: center; }
+    .death .sigil { width: 88px; height: 88px; border-radius: 50%; border: 1px solid rgba(190, 70, 60, .55); display: grid; place-items: center; color: #d98078; font-size: 2rem; background: radial-gradient(circle, rgba(120,30,26,.35), transparent 70%); }
+    .death h2 { margin: 0; font-size: 1.4rem; letter-spacing: .18em; color: #f0cfc8; }
+    .death p { margin: 0; color: #c9a49e; font-size: .82rem; }
+    .veil { position: absolute; inset: 0; z-index: 3; background: radial-gradient(circle at 50% 45%, rgba(80, 12, 10, .15), rgba(8, 2, 2, .86)); opacity: 0; transition: opacity 300ms var(--ease-out); pointer-events: none; }
+    .death-scene.blocking .veil { opacity: 1; }
+    .skip {
+      position: absolute; right: 16px; top: 54px; z-index: 6; display: none;
+      border: 1px solid var(--line); background: rgba(20, 14, 9, .8); color: var(--muted);
+      border-radius: 999px; padding: 6px 12px; font: inherit; font-size: .7rem;
+    }
+    .death-scene.blocking .skip { display: block; }
 
-  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  h1 { font-size: 15px; margin: 0; letter-spacing: .04em; }
-  .levels { display: flex; gap: 4px; }
-  .levels button {
-    appearance: none; border: 1px solid rgba(216,169,76,.35); background: transparent;
-    color: var(--muted); font-size: 12px; padding: 5px 9px; border-radius: 6px; cursor: pointer;
-  }
-  .levels button[aria-pressed="true"] { color: var(--ink); background: var(--gold); border-color: var(--gold); }
+    /* 场景 3：夜晚 → 黎明 */
+    .phase { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; }
+    .night-bg { position: absolute; inset: 0; background: linear-gradient(180deg, #0a1220 0%, #101a24 55%, #1b1710 100%); transition: opacity var(--slow) var(--ease-out); }
+    .dawn-bg { position: absolute; inset: 0; opacity: 0; background: linear-gradient(180deg, #2a2438 0%, #7d4a3a 55%, #d9a05e 100%); transition: opacity var(--slow) var(--ease-out); }
+    .phase.dawn .night-bg { opacity: 0; }
+    .phase.dawn .dawn-bg { opacity: 1; }
+    .moon { position: absolute; width: 74px; height: 74px; border-radius: 50%; top: 18%; right: 20%; background: #e8dfc0; box-shadow: 0 0 50px rgba(232,223,192,.35); transition: opacity var(--slow) var(--ease-out), transform var(--slow) var(--ease-out); }
+    .phase.dawn .moon { opacity: 0; transform: translateY(-16px); }
+    .stars { position: absolute; inset: 0; opacity: .8; background-image: radial-gradient(2px 2px at 20% 30%, #fff8 40%, transparent 41%), radial-gradient(1px 1px at 70% 20%, #fff7 40%, transparent 41%), radial-gradient(1.5px 1.5px at 45% 55%, #fff6 40%, transparent 41%), radial-gradient(1px 1px at 82% 62%, #fff5 40%, transparent 41%); transition: opacity var(--slow); }
+    .phase.dawn .stars { opacity: 0; }
+    .phase-copy { position: relative; z-index: 2; text-align: center; }
+    .phase-copy .eyebrow { font-size: .68rem; letter-spacing: .24em; color: #93a7b4; transition: color var(--slow); }
+    .phase-copy h2 { margin: 6px 0 0; font-size: 2rem; letter-spacing: .3em; color: #dfe8ee; transition: color var(--slow); }
+    .phase.dawn .phase-copy .eyebrow { color: #f3d6ad; }
+    .phase.dawn .phase-copy h2 { color: #fff3dd; }
+    #sceneNight.dawn #dawnBtn { display: none; }
+    .clock { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 8px; font-size: .68rem; color: var(--muted); }
+    .clock i { display: block; width: 64px; height: 2px; background: rgba(255,255,255,.16); overflow: hidden; border-radius: 999px; }
+    .clock i::after { content: ""; display: block; height: 100%; width: 56%; background: var(--gold); animation: clock 6s linear infinite; }
+    @keyframes clock { from { transform: translateX(-100%); } to { transform: translateX(180%); } }
 
-  .scene {
-    border: 1px solid rgba(216,169,76,.22);
-    border-radius: 12px;
-    padding: 12px;
-    background: rgba(255,255,255,.02);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .scene h2 { font-size: 13px; margin: 0; color: var(--gold); font-weight: 600; }
-  .scene p { margin: 0; font-size: 12px; color: var(--muted); }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .row button {
-    appearance: none; border: 1px solid rgba(216,169,76,.4); background: rgba(216,169,76,.1);
-    color: var(--paper); font-size: 13px; padding: 8px 12px; border-radius: 8px; cursor: pointer;
-    transition: transform var(--fx-tap) ease, background var(--fx-tap) ease;
-  }
-  .row button:active { transform: scale(.97); background: rgba(216,169,76,.22); }
-  .row button.ghost { background: transparent; color: var(--muted); }
+    .controls { display: grid; gap: 10px; }
+    .card-panel { border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg, rgba(36,26,18,.9), rgba(18,13,9,.9)); padding: 14px; }
+    .card-panel h3 { margin: 0 0 8px; color: var(--gold); font-size: .78rem; letter-spacing: .12em; font-weight: 500; }
+    .card-panel p { margin: 0 0 12px; color: var(--muted); font-size: .74rem; line-height: 1.7; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row .ghost.primary { border-color: var(--gold); color: #20160d; background: var(--gold); }
+    .note { color: var(--muted); font-size: .68rem; line-height: 1.7; }
+    .note code { color: #dcc39a; }
 
-  /* ── 场景 1：翻身份卡 + 横幅 ── */
-  .stage { position: relative; min-height: 244px; display: grid; place-items: start center; padding-top: 4px; }
-
-  .card {
-    width: 96px; aspect-ratio: 2/3; perspective: 800px;
-    background: none; border: 0; padding: 0; cursor: pointer;
-  }
-  .card .inner {
-    position: relative; display: block; width: 100%; height: 100%;
-    transform-style: preserve-3d;
-    transition: transform var(--fx-flip) var(--ease-flip);
-  }
-  .card .face {
-    position: absolute; inset: 0; border-radius: 8px;
-    backface-visibility: hidden; -webkit-backface-visibility: hidden;
-    display: grid; place-items: center; text-align: center;
-    border: 1px solid rgba(219,188,138,.35);
-    font-size: 11px; padding: 6px;
-  }
-  .card .back { background: repeating-linear-gradient(45deg, #241a12, #241a12 6px, #1b130d 6px, #1b130d 12px); color: #6d5b42; }
-  .card .front { transform: rotateY(180deg); background: linear-gradient(#3a2a1a, #241a10); color: var(--paper); }
-  .card[aria-pressed="true"] .inner { transform: rotateY(180deg); }
-
-  /* 减弱档：不转，只交叉淡入；正面直接可见。 */
-  [data-motion="reduced"] .card { perspective: none; }
-  [data-motion="reduced"] .card .inner { transform-style: flat; transition: none; }
-  [data-motion="reduced"] .card .face { backface-visibility: visible; -webkit-backface-visibility: visible; }
-  [data-motion="reduced"] .card .back { transition: opacity var(--fx-flip) ease; }
-  [data-motion="reduced"] .card .front { transform: none; opacity: 0; transition: opacity var(--fx-flip) ease; }
-  [data-motion="reduced"] .card[aria-pressed="true"] .back { opacity: 0; }
-  [data-motion="reduced"] .card[aria-pressed="true"] .front { opacity: 1; }
-  /* 关档：瞬时。 */
-  [data-motion="off"] .card .inner,
-  [data-motion="off"] .card .back,
-  [data-motion="off"] .card .front { transition: none; }
-
-  .banner {
-    position: absolute; left: 50%; bottom: 2px;
-    transform: translate(-50%, 0) scale(.96);
-    min-width: 208px; max-width: 300px;
-    padding: 10px 12px; border-radius: 10px;
-    background: rgba(20,14,10,.94);
-    border: 1px solid rgba(216,169,76,.55);
-    box-shadow: 0 8px 28px rgba(0,0,0,.5);
-    display: flex; align-items: center; gap: 10px;
-    opacity: 0; pointer-events: none;
-    transition: opacity var(--fx-banner-in) ease, transform var(--fx-banner-in) var(--ease-flip);
-  }
-  .banner.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
-  .banner .mini {
-    width: 34px; height: 51px; border-radius: 4px; flex: none;
-    background: linear-gradient(#4a3520, #2a1d12);
-    border: 1px solid rgba(216,169,76,.4);
-  }
-  .banner b { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
-  .banner strong { font-size: 15px; color: var(--gold); }
-
-  /* ── 场景 2：死亡 ── */
-  .death-scene {
-    position: absolute; inset: 0; border-radius: 10px;
-    background: rgba(6,4,3,.88);
-    display: grid; place-items: center; gap: 6px; text-align: center;
-    opacity: 0; pointer-events: none;
-    transition: opacity var(--fx-death) ease;
-  }
-  .death-scene.on { opacity: 1; pointer-events: auto; }
-  .death-scene .name { font-size: 22px; letter-spacing: .1em; }
-  .death-scene .sub { font-size: 12px; color: var(--muted); }
-  .death-scene .skip {
-    position: absolute; right: 8px; top: 8px;
-    font-size: 11px; padding: 4px 8px; border-radius: 6px;
-    border: 1px solid rgba(216,169,76,.4); background: transparent; color: var(--muted); cursor: pointer;
-  }
-  .death-scene[data-instant="1"] { transition: none; }
-
-  /* ── 场景 3：夜晚 → 黎明 ── */
-  .sky {
-    position: relative; height: 120px; border-radius: 10px; overflow: hidden;
-    background: linear-gradient(#0a1224, #101a2e 60%, #1a1a26);
-    transition: background var(--fx-dawn) ease;
-  }
-  .sky .moon, .sky .stars { transition: opacity var(--fx-dawn) ease; }
-  .sky .moon {
-    position: absolute; right: 26px; top: 18px; width: 26px; height: 26px; border-radius: 50%;
-    background: radial-gradient(circle at 35% 35%, #f4ead0, #cdbb8f); opacity: 1;
-  }
-  .sky .stars { position: absolute; inset: 0; opacity: 1;
-    background-image: radial-gradient(1px 1px at 20% 30%, #fff 50%, transparent 51%),
-                      radial-gradient(1px 1px at 64% 18%, #fff 50%, transparent 51%),
-                      radial-gradient(1px 1px at 40% 62%, #fff 50%, transparent 51%),
-                      radial-gradient(1px 1px at 80% 52%, #fff 50%, transparent 51%);
-  }
-  .sky.dawn { background: linear-gradient(#2a1d18, #7a4a26 55%, #d9903f); }
-  .sky.dawn .moon, .sky.dawn .stars { opacity: 0; }
-  .sky .label {
-    position: absolute; left: 0; right: 0; bottom: 10px; text-align: center;
-    font-size: 13px; letter-spacing: .18em; color: #e7d7b2;
-    background: rgba(8,6,4,.35); padding: 3px 0;
-  }
-
-  .note { font-size: 11px; color: #6d6152; }
-  .status { font-size: 11px; color: var(--muted); min-height: 16px; }
-</style>
+    /* 三档降级：reduced 只保留透明度，off 直接落终态 */
+    html[data-level="reduced"] .trial-inner { transition: none; }
+    html[data-level="reduced"] .trial-card.flipped .trial-inner { transform: none; }
+    html[data-level="reduced"] .face { backface-visibility: visible; }
+    html[data-level="reduced"] .face.front { opacity: 0; transition: opacity var(--base) var(--ease-out); transform: none; }
+    html[data-level="reduced"] .trial-card.flipped .face.front { opacity: 1; }
+    html[data-level="reduced"] .face.back { transition: opacity var(--base) var(--ease-out); }
+    html[data-level="reduced"] .trial-card.flipped .face.back { opacity: 0; }
+    html[data-level="reduced"] .reveal.in { animation: none; opacity: 1; transform: none; }
+    html[data-level="reduced"] .veil { transition-duration: var(--base); }
+    html[data-level="reduced"] .night-bg, html[data-level="reduced"] .dawn-bg, html[data-level="reduced"] .moon { transition-duration: var(--base); }
+    html[data-level="off"] *, html[data-level="off"] *::after { animation: none !important; transition: none !important; }
+    html[data-level="off"] .reveal.in { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      html:not([data-level="full"]) * { animation: none !important; }
+    }
+  </style>
 </head>
 <body>
-<div class="phone">
-  <header>
-    <h1>动效原型 · 三场景</h1>
-    <div class="levels" role="group" aria-label="动效档位">
-      <button type="button" data-level="full" aria-pressed="true">全开</button>
-      <button type="button" data-level="reduced" aria-pressed="false">减弱</button>
-      <button type="button" data-level="off" aria-pressed="false">关</button>
-    </div>
-  </header>
-  <p class="note">原型，不是成品。只看节奏、强度、信息能不能读清。</p>
-
-  <section class="scene" aria-labelledby="s1">
-    <h2 id="s1">场景 1 · 翻开身份卡 + 全桌横幅</h2>
-    <p>600ms 翻牌 → 横幅 300ms 入、600ms 停、180ms 出。横幅不吃点击。</p>
-    <div class="stage">
-      <button class="card" type="button" id="flipCard" aria-pressed="false" aria-label="翻开一张身份卡">
-        <span class="inner">
-          <span class="face back">身份卡</span>
-          <span class="face front">女巫</span>
-        </span>
-      </button>
-      <div class="banner" id="banner" role="status" aria-live="polite">
-        <span class="mini" aria-hidden="true"></span>
-        <span><b>机器人2 翻开了 机器人1 的身份卡</b><strong>女巫</strong></span>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>动效原型 · 三个招牌场景</h1>
+        <p>390×844 手机框 · 只验节奏 / 强度 / 信息可读性 · 点「跳过」可随时终止阻塞</p>
       </div>
-    </div>
-    <div class="row">
-      <button type="button" id="playFlip">翻开一张身份卡</button>
-      <button type="button" class="ghost" id="resetFlip">复位</button>
-    </div>
-  </section>
+      <div class="seg" role="group" aria-label="动效档位">
+        <button type="button" data-level="full" aria-pressed="true">全开</button>
+        <button type="button" data-level="reduced" aria-pressed="false">减弱</button>
+        <button type="button" data-level="off" aria-pressed="false">关</button>
+      </div>
+    </header>
 
-  <section class="scene" aria-labelledby="s2">
-    <h2 id="s2">场景 2 · 死亡揭示</h2>
-    <p>1200ms 暗场 + 名字。点「跳过」或点画面任意处，应 100ms 内落终态。</p>
-    <div class="stage">
-      <div class="death-scene" id="death">
-        <button class="skip" type="button" id="deathSkip">跳过</button>
-        <div>
-          <div class="name">约翰</div>
-          <div class="sub">死亡</div>
+    <div class="layout">
+      <div class="phone" id="phone">
+        <div class="topbar"><span>原型 · <b id="sceneName">翻牌 / 揭示</b></span><span>1692</span></div>
+
+        <section class="scene active" id="sceneFlip" aria-label="翻牌与揭示">
+          <div class="flip-wrap">
+            <div class="trial-card" id="trialCard" aria-hidden="true">
+              <div class="trial-inner">
+                <div class="face back"></div>
+                <div class="face front"></div>
+              </div>
+            </div>
+            <button class="ghost primary" id="flipBtn" type="button">翻开一张身份卡</button>
+          </div>
+        </section>
+
+        <section class="scene death-scene" id="sceneDeath" aria-label="死亡揭示">
+          <div class="veil"></div>
+          <div class="death">
+            <div class="sigil">✝</div>
+            <h2>约翰 死亡</h2>
+            <p>被女巫杀害 · 全桌公开</p>
+          </div>
+          <button class="skip" id="deathSkip" type="button">跳过</button>
+        </section>
+
+        <section class="scene phase" id="sceneNight" aria-label="夜晚到黎明">
+          <div class="night-bg"></div>
+          <div class="dawn-bg"></div>
+          <div class="stars"></div>
+          <div class="moon"></div>
+          <div class="clock"><span>夜晚</span><i></i><span>黎明</span></div>
+          <div class="phase-copy">
+            <div class="eyebrow" id="phaseEyebrow">PHASE · NIGHT</div>
+            <h2 id="phaseTitle">夜晚</h2>
+          </div>
+          <button class="ghost primary" id="dawnBtn" type="button" style="position:absolute;bottom:92px;z-index:5">进入黎明</button>
+        </section>
+
+        <div class="reveal" id="reveal" role="status" aria-live="polite">
+          <img src="/assets/cards/zh/witch.png" alt="">
+          <div><div class="kicker">身份卡 · 公开揭示</div><div class="title" id="revealTitle">约翰 翻开了「女巫」</div></div>
         </div>
+
+        <p class="caption" id="caption"><b>翻牌 600ms</b> · 横幅 300 / 600 / 180ms · 非阻塞 · 点击跳过只终止演出，不改状态</p>
       </div>
+
+      <aside class="controls">
+        <div class="card-panel">
+          <h3>1 · 翻牌 / 揭示</h3>
+          <p>卡面 600ms 翻转；横幅入 300ms、停 600ms、出 180ms。信息只在此刻公开，演出不 gate 输入。</p>
+          <div class="row"><button class="ghost" id="flipPlay" type="button">重播</button><button class="ghost" id="flipReset" type="button">复位</button></div>
+        </div>
+        <div class="card-panel">
+          <h3>2 · 死亡</h3>
+          <p>公开死亡 1200ms 的暗场 + 单人横幅；只播一次，不做 per-seat。期间任意点击或「跳过」在 100ms 内落终态。</p>
+          <div class="row"><button class="ghost" id="deathPlay" type="button">播放死亡</button><button class="ghost" id="deathReset" type="button">复位</button></div>
+        </div>
+        <div class="card-panel">
+          <h3>3 · 夜晚 → 黎明</h3>
+          <p>阶段转场 375ms 交叉淡入，不做全屏拉幕；夜色、月亮、星星一起退，文字先换成黎明。只用 opacity / transform。</p>
+          <div class="row"><button class="ghost" id="nightPlay" type="button">回到夜晚</button><button class="ghost" id="dawnPlay" type="button">进入黎明</button></div>
+        </div>
+        <div class="card-panel">
+          <h3>怎么判断</h3>
+          <p class="note">看三件事：<br>1. 翻牌后你是否先看到牌面再读到横幅；<br>2. 死亡 1.2s 是否够读完名字与死因，又没久到想点掉；<br>3. 夜晚到黎明是否像「天亮了」，而不是页面被换掉。</p>
+        </div>
+      </aside>
     </div>
-    <div class="row">
-      <button type="button" id="playDeath">播放死亡</button>
-      <button type="button" class="ghost" id="resetDeath">复位</button>
-    </div>
-    <div class="status" id="deathStatus" role="status" aria-live="polite"></div>
-  </section>
+  </div>
 
-  <section class="scene" aria-labelledby="s3">
-    <h2 id="s3">场景 3 · 夜晚 → 黎明</h2>
-    <p>375ms 夜色、月亮、星星退场，文字先变「黎明」。</p>
-    <div class="sky" id="sky">
-      <div class="stars" aria-hidden="true"></div>
-      <div class="moon" aria-hidden="true"></div>
-      <div class="label" id="skyLabel">夜晚</div>
-    </div>
-    <div class="row">
-      <button type="button" id="playDawn">进入黎明</button>
-      <button type="button" class="ghost" id="resetDawn">回到夜晚</button>
-    </div>
-  </section>
-</div>
+  <script type="module">
+    const $ = (id) => document.getElementById(id);
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+    let level = localStorage.getItem("salem.motion") || (reduce.matches ? "reduced" : "full");
+    if (!["full", "reduced", "off"].includes(level)) level = "full";
+    let flipTimer = null;
+    let bannerTimers = [];
+    let deathTimer = null;
 
-<script>
-(() => {
-  const root = document.documentElement;
+    function applyLevel(next) {
+      level = next;
+      localStorage.setItem("salem.motion", level);
+      document.documentElement.dataset.level = level;
+      document.querySelectorAll("[data-level]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.level === level)));
+      if (level === "off") { finishFlip(); finishDeath(); }
+    }
+    document.querySelectorAll("[data-level]").forEach((b) => b.addEventListener("click", () => applyLevel(b.dataset.level)));
+    applyLevel(level);
 
-  // ── 档位：唯一来源写 dataset.motion，动画时长由 CSS 变量接管 ──
-  const levelButtons = [...document.querySelectorAll("[data-level]")];
-  function setLevel(level) {
-    root.dataset.motion = level;
-    for (const btn of levelButtons) btn.setAttribute("aria-pressed", String(btn.dataset.level === level));
-  }
-  for (const btn of levelButtons) {
-    btn.addEventListener("click", () => setLevel(btn.dataset.level));
-  }
+    function scene(name, caption) {
+      clearBanner();
+      document.querySelectorAll(".scene").forEach((s) => s.classList.toggle("active", s.id === name));
+      $("sceneName").textContent = caption;
+    }
 
-  const timers = new Map();
-  function later(key, fn, ms) {
-    clearTimeout(timers.get(key));
-    timers.set(key, setTimeout(fn, ms));
-  }
-  function cancel(key) {
-    clearTimeout(timers.get(key));
-    timers.delete(key);
-  }
-  function ms(name, fallback) {
-    const raw = getComputedStyle(root).getPropertyValue(name).trim();
-    const value = parseFloat(raw);
-    if (!Number.isFinite(value)) return fallback;
-    return raw.endsWith("ms") ? value : value * 1000;
-  }
+    function clearBanner() {
+      bannerTimers.forEach(clearTimeout);
+      bannerTimers = [];
+      const el = $("reveal");
+      el.className = "reveal";
+    }
 
-  // ── 场景 1 ──
-  const flipCard = document.getElementById("flipCard");
-  const banner = document.getElementById("banner");
+    function playBanner() {
+      const el = $("reveal");
+      clearBanner();
+      el.classList.add("in");
+      bannerTimers.push(setTimeout(() => { el.classList.add("hold"); }, 300));
+      bannerTimers.push(setTimeout(() => { el.classList.remove("in", "hold"); el.classList.add("out"); }, 900));
+      bannerTimers.push(setTimeout(() => { el.className = "reveal"; }, 1080));
+    }
 
-  function resetFlip() {
-    cancel("flip");
-    cancel("bannerIn");
-    cancel("bannerOut");
-    flipCard.setAttribute("aria-pressed", "false");
-    banner.classList.remove("on");
-  }
-  function playFlip() {
-    resetFlip();
-    // 翻牌先落，横幅等牌面转完再进，避免「还没看到牌就先读字」。
-    later("flip", () => {
-      flipCard.setAttribute("aria-pressed", "true");
-      later("bannerIn", () => {
-        banner.classList.add("on");
-        later("bannerOut", () => banner.classList.remove("on"),
-          ms("--fx-banner-hold", 600));
-      }, ms("--fx-flip", 600));
-    }, 16);
-  }
-  flipCard.addEventListener("click", playFlip);
-  document.getElementById("playFlip").addEventListener("click", playFlip);
-  document.getElementById("resetFlip").addEventListener("click", resetFlip);
+    function startFlip() {
+      scene("sceneFlip", "翻牌 / 揭示");
+      $("caption").innerHTML = "<b>翻牌 600ms</b> · 横幅 300 / 600 / 180ms · 非阻塞 · 点击跳过只终止演出，不改状态";
+      clearBanner();
+      const card = $("trialCard");
+      card.classList.remove("flipped");
+      void card.offsetWidth;
+      card.classList.add("flipped");
+      flipTimer = setTimeout(playBanner, level === "off" ? 0 : 600);
+    }
 
-  // ── 场景 2 ──
-  const death = document.getElementById("death");
-  const deathStatus = document.getElementById("deathStatus");
+    function finishFlip() {
+      clearTimeout(flipTimer);
+      flipTimer = null;
+      $("trialCard").classList.add("flipped");
+      $("reveal").className = "reveal hold";
+    }
 
-  function finishDeath(reason) {
-    cancel("death");
-    death.dataset.instant = "1";
-    death.classList.add("on");
-    void death.offsetWidth; // 让 instant 生效后再去掉，下一轮恢复过渡
-    death.dataset.instant = "";
-    deathStatus.textContent = reason;
-  }
-  function playDeath() {
-    cancel("death");
-    death.dataset.instant = "";
-    death.classList.remove("on");
-    deathStatus.textContent = "";
-    later("death", () => {
-      death.classList.add("on");
-      later("death", () => { deathStatus.textContent = "自然落终态（1200ms）"; }, ms("--fx-death", 1200));
-    }, 16);
-  }
-  function resetDeath() {
-    cancel("death");
-    death.classList.remove("on");
-    deathStatus.textContent = "";
-  }
-  document.getElementById("playDeath").addEventListener("click", playDeath);
-  document.getElementById("resetDeath").addEventListener("click", resetDeath);
-  document.getElementById("deathSkip").addEventListener("click", (event) => {
-    event.stopPropagation();
-    finishDeath("跳过：立即落终态");
-  });
-  // 点画面任意处也能跳——但只在死亡场景演着的时候。
-  death.addEventListener("pointerdown", (event) => {
-    if (event.target.id === "deathSkip") return;
-    finishDeath("点画面跳过：立即落终态");
-  });
+    function startDeath() {
+      scene("sceneDeath", "死亡揭示");
+      $("caption").innerHTML = "<b>死亡 1200ms</b> · 暗场 + 单人横幅 · 任意点击 / 跳过 → 100ms 内终态 · 只播一次";
+      finishDeath();
+      const el = $("sceneDeath");
+      el.classList.add("blocking");
+      deathTimer = setTimeout(finishDeath, level === "off" ? 0 : 1200);
+    }
 
-  // ── 场景 3 ──
-  const sky = document.getElementById("sky");
-  const skyLabel = document.getElementById("skyLabel");
-  document.getElementById("playDawn").addEventListener("click", () => {
-    skyLabel.textContent = "黎明";       // 文字先变，颜色后跟
-    sky.classList.add("dawn");
-  });
-  document.getElementById("resetDawn").addEventListener("click", () => {
-    sky.classList.remove("dawn");
-    skyLabel.textContent = "夜晚";
-  });
+    function finishDeath() {
+      clearTimeout(deathTimer);
+      deathTimer = null;
+      $("sceneDeath").classList.remove("blocking");
+    }
 
-  setLevel("full");
-})();
-</script>
+    function startNight() {
+      scene("sceneNight", "夜晚 → 黎明");
+      $("caption").innerHTML = "<b>阶段转场 375ms</b> · 夜色 / 月亮 / 星星一起退 · 不做全屏拉幕、不 gate 输入";
+      const phase = $("sceneNight");
+      phase.classList.remove("dawn");
+      $("phaseEyebrow").textContent = "PHASE · NIGHT";
+      $("phaseTitle").textContent = "夜晚";
+      $("clock").firstElementChild.textContent = "夜晚";
+      $("dawnBtn").hidden = false;
+    }
+
+    function startDawn() {
+      const phase = $("sceneNight");
+      phase.classList.add("dawn");
+      $("phaseEyebrow").textContent = "PHASE · DAWN";
+      $("phaseTitle").textContent = "黎明";
+      $("clock").firstElementChild.textContent = "黎明";
+      $("dawnBtn").hidden = true;
+      $("caption").innerHTML = "<b>375ms 交叉淡入</b> · 先读「黎明」，再看天色变化 · 纯 opacity/transform";
+    }
+
+    $("flipBtn").addEventListener("click", startFlip);
+    $("flipPlay").addEventListener("click", startFlip);
+    $("flipReset").addEventListener("click", () => { clearBanner(); $("trialCard").classList.remove("flipped"); });
+    $("deathPlay").addEventListener("click", startDeath);
+    $("deathReset").addEventListener("click", finishDeath);
+    $("deathSkip").addEventListener("click", finishDeath);
+    $("sceneDeath").addEventListener("pointerdown", (event) => {
+      if (event.target.closest("#deathSkip")) return;
+      if ($("sceneDeath").classList.contains("blocking")) finishDeath();
+    });
+    $("nightPlay").addEventListener("click", startNight);
+    $("dawnPlay").addEventListener("click", startDawn);
+    $("dawnBtn").addEventListener("click", startDawn);
+    startNight();
+  </script>
 </body>
 </html>

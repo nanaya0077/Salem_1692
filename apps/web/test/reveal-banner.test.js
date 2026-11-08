@@ -44,7 +44,8 @@ test("只播新翻的牌：首次进入与换局都当作已读", async () => {
   assert.ok(body.includes("S.seenLog"));
   assert.ok(body.includes("log.length < S.seenLog"));
   assert.ok(body.includes('event?.type === "trialRevealed"'));
-  assert.ok(body.includes("S.revealQueue.push(event)"));
+  assert.ok(body.includes("S.revealQueue.push"));
+  assert.ok(body.includes("REVEAL_QUEUE_MAX"));
 });
 
 test("一次翻多张会排队，不会互相盖掉", async () => {
@@ -52,16 +53,18 @@ test("一次翻多张会排队，不会互相盖掉", async () => {
   const body = bodyOf(src, "function showNextReveal()");
   assert.ok(body.includes("S.revealQueue.shift()"));
   assert.ok(body.includes("REVEAL_BANNER_MS"));
-  assert.ok(body.includes("if (S.revealQueue.length) showNextReveal()"));
+  assert.ok(body.includes("scheduleNextReveal()"));
 });
 
-test("横幅能点开牌面，重连与换局会清干净", async () => {
+test("横幅纯展示不挡操作，重连与换局会清干净", async () => {
   const src = await web("app.js");
-  assert.ok(src.includes('$("revealBanner").addEventListener("click"'));
+  const css = await web("styles.css");
+  assert.match(css, /\.reveal-banner\s*\{[^}]*pointer-events:\s*none/);
   const reset = bodyOf(src, "function resetRoomState()");
   assert.ok(reset.includes("S.seenLog = null"));
   assert.ok(reset.includes("S.revealQueue = []"));
   assert.ok(reset.includes("clearTimeout(S.revealTimer)"));
+  assert.ok(reset.includes("clearTimeout(S.revealDelay)"));
 });
 
 test("身份卡是双面 3D 翻牌，只给这次新翻的那张播动画", async () => {

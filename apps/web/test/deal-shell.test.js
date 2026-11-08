@@ -30,7 +30,7 @@ test("点「进入黎明」发 dealAck，选角色发 chooseRole", () => {
 // 离线壳：新模块必须进 SHELL 并升 VERSION，否则旧缓存里还是没这个文件的 app.js。
 test("离线壳收进新模块并升版本", () => {
   const version = sw.match(/const VERSION = "([^"]+)"/)?.[1];
-  assert.equal(version, "salem-v11", "新模块进壳后 VERSION 必须是当前这一版，旧缓存才会整批作废");
+  assert.equal(version, "salem-v16", "新模块进壳后 VERSION 必须是当前这一版，旧缓存才会整批作废");
   const shell = sw.slice(sw.indexOf("const SHELL"), sw.indexOf("const cacheable"));
   assert.ok(shell.includes('"/deal-view.js"'), "SHELL 要收 /deal-view.js");
   assert.ok(shell.includes('"/reveal-view.js"'), "SHELL 要收 /reveal-view.js");
@@ -38,3 +38,4 @@ test("离线壳收进新模块并升版本", () => {
   assert.ok(cacheable.includes('"/deal-view.js"'), "cacheable 列表也要收 /deal-view.js");
   assert.ok(cacheable.includes('"/reveal-view.js"'), "cacheable 列表也要收 /reveal-view.js");
 });
+
