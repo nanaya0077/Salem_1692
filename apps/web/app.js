@@ -1076,14 +1076,15 @@ function renderRevealDrawer() {
   applyDrawerModel(bar, {
     kicker: heading.kicker,
     title: heading.title,
-    sub: heading.sub,
+    // 交出去之后就别再教人怎么选了：写着「选定前可以改」而按钮已经不能点是自相矛盾。
+    sub: submitted ? "已提交，等待结算。" : heading.sub,
     cardsHtml,
     cardsHidden: submitted,
     waiting: submitted,
     waitText: "已提交，等待结算",
     note: submitted ? "" : heading.note,
     declineVisible: !submitted && canDecline(view),
-    submitLabel: revealSubmitLabel(picked),
+    submitLabel: submitted ? "已提交" : revealSubmitLabel(picked),
     submitDisabled: !canSubmitReveal(view, picked),
   });
   setDrawerOpen(bar, true);

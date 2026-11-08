@@ -146,3 +146,11 @@ test("自动代翻后抽屉留一会儿把话说清，且不拦截牌桌点击",
   assert.match(drawer, /bar\.style\.pointerEvents = ""/, "离开收尾态要还原");
   assert.match(bodyOf(app, "function resetRoomState()"), /S\.revealAfterglowUntil = 0/, "换房/退房要清干净");
 });
+test("交出去之后不再教人怎么选：副标题与按钮一起换掉", () => {
+  const drawer = bodyOf(app, "function renderRevealDrawer()");
+  assert.match(drawer, /sub: submitted \? "已提交，等待结算。" : heading\.sub/, "提交后副标题换成等待，不再写「选定前可以改」");
+  assert.match(drawer, /submitLabel: submitted \? "已提交" : revealSubmitLabel\(picked\)/, "按钮不再显示选择指令");
+  assert.match(drawer, /waitText: "已提交，等待结算"/, "等待层与副标题同一句");
+  assert.match(drawer, /cardsHidden: submitted/, "卡片同时收起");
+  assert.match(drawer, /declineVisible: !submitted && canDecline\(view\)/, "提交后不再给「放弃」");
+});

@@ -84,7 +84,7 @@ test("印章图存在且被离线壳预缓存", async () => {
   const info = await stat(path.join(repoDir, "assets", "fx", "conspiracy-seal.svg"));
   assert.ok(info.size > 0);
   assert.match(swSource, /"\/assets\/fx\/conspiracy-seal\.svg"/);
-  assert.match(swSource, /const VERSION = "salem-v24"/);
+  assert.match(swSource, /const VERSION = "salem-v25"/);
 });
 
 test("页面里有压暗、印章与换牌三个演出层", () => {

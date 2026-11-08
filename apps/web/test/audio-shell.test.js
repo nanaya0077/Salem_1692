@@ -95,7 +95,7 @@ test("app.js 在首次手势解锁，并接上六个事件音效", async () => {
 
 test("PWA 只预缓存 audio.js，音频文件走 /assets/ 按需缓存", async () => {
   const sw = await web("sw.js");
-  assert.match(sw, /const VERSION = "salem-v24"/);
+  assert.match(sw, /const VERSION = "salem-v25"/);
   assert.ok(sw.includes('"/audio.js"'));
   assert.doesNotMatch(sw, /"\/assets\/audio\//);
 });
