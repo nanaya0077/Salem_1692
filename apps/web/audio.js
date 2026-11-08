@@ -17,6 +17,7 @@ export const AUDIO_MANIFEST = {
   "sfx.life.death": { file: "sfx.life.death.mp3", kind: "sfx" },
   "sfx.timer.warn": { file: "sfx.timer.warn.mp3", kind: "sfx" },
   "sfx.phase.dawn": { file: "sfx.phase.dawn.mp3", kind: "sfx" },
+  "sfx.conspiracy.start": { file: "sfx.conspiracy.start.mp3", kind: "sfx" },
   "amb.night": { file: "amb.night.mp3", kind: "ambience" },
 };
 
@@ -25,6 +26,9 @@ export const SHORT_SFX_IDS = Object.freeze(
 );
 
 export const AUDIO_LEVELS = Object.freeze(["full", "reduced", "off"]);
+
+/** 触觉四档：none 不调，short 12ms，long 35ms，double 是「两下短」。 */
+export const HAPTIC_PATTERNS = Object.freeze({ short: 12, long: 35, double: [0, 18, 80, 18] });
 
 /** 主增益：全开 0.6，减弱 0.24（×0.4），关 0。 */
 export function audioGainForLevel(level) {
@@ -216,5 +220,21 @@ function stopAmbience() {
     source.stop(t + 0.65);
   } catch {
     try { source.stop(); } catch {}
+  }
+}
+
+/**
+ * 触觉反馈：只在支持 Vibration API 且档位不是 off 时触发。
+ * iOS Safari 从未实现该 API，这里静默跳过——不提示、不承载任何信息（#39 §5）。
+ */
+export function haptic(mode) {
+  if (level === "off") return false;
+  const pattern = HAPTIC_PATTERNS[mode];
+  if (pattern === undefined) return false;
+  if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return false;
+  try {
+    return navigator.vibrate(pattern);
+  } catch {
+    return false;
   }
 }

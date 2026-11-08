@@ -12,8 +12,21 @@
 | `sfx.life.death` | `assets/audio/sfx.life.death.mp3` | 公开死亡 / 情侣连锁 | mono 22.05 kHz · 64 kbps · 峰值 −1 dBFS | ≈0.52 s |
 | `sfx.timer.warn` | `assets/audio/sfx.timer.warn.mp3` | 回合最后 10 秒 | mono 22.05 kHz · 64 kbps · 峰值 −1 dBFS | ≈0.20 s |
 | `sfx.phase.dawn` | `assets/audio/sfx.phase.dawn.mp3` | 夜晚 → 黎明 | mono 22.05 kHz · 64 kbps · 峰值 −1 dBFS | ≈1.46 s |
+| `sfx.conspiracy.start` | `assets/audio/sfx.conspiracy.start.mp3` | 抽到传染卡、进入传染阶段 | mono 44.1 kHz · 96 kbps · 峰值 −1 dBFS | ≈0.50 s |
 | `amb.night` | `assets/audio/amb.night.mp3` | 夜晚环境垫（10 s 循环） | stereo 44.1 kHz · 128 kbps · RMS ≈0.055 · true peak ≤ −2 dBTP | 10 s |
 
 实现约束见 `docs/wayfinder/salem-online/motion` 相关票与 `apps/web/audio.js`：
 音效只跟随动效三档（全开 / 减弱 / 关），首次真实手势解锁，加载失败静默降级，
 不做 per-seat 播放，也不把音频放进 Service Worker 的预缓存清单。
+
+## 合成脚本
+
+上面 7 条首批素材的合成源在 `scripts/build-audio.mjs`（振荡器 + 噪声，无外部依赖，只在编码那步调 ffmpeg）。
+`sfx.conspiracy.start` 由该脚本生成；其余 7 条是脚本补齐之前产出的二进制，
+配方已按听感重建但尚未重跑覆盖——要统一重生成加 `--force`，会改变现有听感，需先试听。
+
+```bash
+node scripts/build-audio.mjs                        # 只补缺失的
+node scripts/build-audio.mjs --force                # 全部重生成（会改听感）
+node scripts/build-audio.mjs sfx.conspiracy.start   # 只做点名的
+```

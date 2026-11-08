@@ -871,3 +871,47 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 @media (prefers-reduced-motion: reduce) {
   .conspiracy-ring { animation: none; }
 }
+
+/* ---- 传染阶段演出（#58 / B2）：转场压暗、换牌三拍、私密高亮 ---- */
+.conspiracy-veil {
+  position: fixed; inset: 0; z-index: 56; pointer-events: none;
+  background: radial-gradient(circle at 50% 42%, rgba(12, 9, 7, .28), rgba(8, 6, 5, .82));
+  opacity: 0; transition: opacity 260ms var(--ease-out, ease-out);
+}
+.conspiracy-veil.on { opacity: 1; }
+.conspiracy-seal {
+  position: fixed; left: 50%; top: 28%; width: 132px; height: 132px; z-index: 57;
+  transform: translate(-50%, -50%) scale(.92); opacity: 0; pointer-events: none;
+  transition: opacity 260ms var(--ease-out, ease-out), transform 260ms var(--ease-out, ease-out);
+}
+.conspiracy-seal.on { opacity: .92; transform: translate(-50%, -50%) scale(1); }
+.conspiracy-swap {
+  position: fixed; inset: 0; z-index: 58; pointer-events: none;
+}
+.conspiracy-swap-card {
+  position: absolute; width: 56px; aspect-ratio: 2 / 3; border-radius: 8px;
+  background: #1b1512 url("/assets/cards/zh/back-trial.png") center / cover no-repeat;
+  border: 1px solid rgba(219, 188, 138, .45);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .45);
+  opacity: 1;
+}
+.conspiracy-swap-card.curl { transform: scale(.92) rotate(-6deg); opacity: .9; }
+.conspiracy-swap-card.fly { transition: transform 450ms var(--ease-out, ease-out), opacity 450ms var(--ease-out, ease-out); }
+.conspiracy-swap-card.drop { transform: translateY(0) scale(1); opacity: 0; transition: transform 250ms ease-in, opacity 250ms ease-in; }
+.conspiracy-new-card { box-shadow: 0 0 0 2px var(--gold), 0 0 16px rgba(216, 169, 76, .55); }
+.trial-card.conspiracy-peek .trial-inner { animation: conspiracy-peek 600ms var(--ease-out, ease-out) both; }
+@keyframes conspiracy-peek { 0% { transform: rotateY(180deg) scale(1); } 45% { transform: rotateY(180deg) scale(1.08); } 100% { transform: rotateY(180deg) scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .conspiracy-veil, .conspiracy-seal { transition: none; }
+  .conspiracy-swap-card.fly, .conspiracy-swap-card.drop { transition: none; }
+  .trial-card.conspiracy-peek .trial-inner { animation: none; }
+}
+html[data-level="reduced"] .conspiracy-swap-card.fly,
+html[data-level="reduced"] .conspiracy-swap-card.drop,
+html[data-level="reduced"] .conspiracy-veil,
+html[data-level="reduced"] .conspiracy-seal { transition-duration: 180ms; }
+html[data-level="off"] .conspiracy-veil,
+html[data-level="off"] .conspiracy-seal,
+html[data-level="off"] .conspiracy-swap-card,
+html[data-level="off"] .trial-card.conspiracy-peek .trial-inner { transition: none !important; animation: none !important; }
+html[data-level="off"] .conspiracy-swap { display: none; }

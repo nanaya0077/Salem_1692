@@ -177,5 +177,5 @@ test("倒计时变金接在同一处刷新里，样式也留了挂点", () => {
 
 test("新模块进离线壳", () => {
   assert.ok(sw.includes('"/conspiracy-view.js"'), "conspiracy-view.js 必须进 SHELL");
-  assert.match(sw, /const VERSION = "salem-v19"/);
+  assert.match(sw, /const VERSION = "salem-v20"/);
 });

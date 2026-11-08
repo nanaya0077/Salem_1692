@@ -50,6 +50,7 @@ export const MOTION_GROUPS = [
     members: [
       { id: "fx.card.draw", trigger: "抽牌入手", duration: 220 },
       { id: "fx.card.play", trigger: "打出手牌", duration: 260 },
+      { id: "fx.card.conspiracy", trigger: "抽到传染卡即弃", duration: 500 },
     ],
   },
   {
@@ -158,6 +159,43 @@ export const MOTION_GROUPS = [
     merge: "pointer",
     hint: "低频脉冲，不每帧重启动画",
   },
+  {
+    id: "fx.phase.conspiracy",
+    domain: "phase",
+    trigger: "进入传染阶段",
+    duration: 260,
+    block: false,
+    merge: "phase",
+    hint: "桌面压暗 + 标题淡入；不阻塞，20 秒计时照走",
+  },
+  {
+    id: "fx.conspiracy.cat",
+    domain: "conspiracy",
+    trigger: "黑猫揭示提交后",
+    duration: 600,
+    block: false,
+    merge: "reveal",
+    hint: "复用身份卡翻面节奏，不另起时长",
+  },
+  {
+    id: "fx.conspiracy.pick",
+    domain: "conspiracy",
+    trigger: "进入取牌步与等待计数变化",
+    duration: 150,
+    block: false,
+    merge: "state",
+    hint: "只换标题与计数文字，不动布局",
+  },
+  {
+    id: "fx.conspiracy.swap",
+    domain: "conspiracy",
+    trigger: "结算换牌",
+    duration: 900,
+    block: false,
+    merge: "reveal",
+    hint: "卷起 200 / 交换 450 / 落位 250；12 人局只演自己这一对",
+    phases: { curl: 200, fly: 450, drop: 250 },
+  },
 ];
 
 export const MOTION_GROUP_BY_ID = new Map(MOTION_GROUPS.map((group) => [group.id, group]));
@@ -168,8 +206,28 @@ export const MOTION_MEMBER_IDS = MOTION_GROUPS.flatMap((group) =>
 
 export const BLOCKING_GROUP_IDS = MOTION_GROUPS.filter((group) => group.block).map((group) => group.id);
 
+// 成员 id 也建索引：#29 的事件表与 #39 的音效表用的都是成员级 id，
+// 只索引组会让 motionGroup("fx.state.accuse") 返回 null、时长静默变 0。
+export const MOTION_MEMBER_BY_ID = new Map(
+  MOTION_GROUPS.flatMap((group) =>
+    group.members
+      ? group.members.map((member) => [member.id, { duration: member.duration, trigger: member.trigger, groupId: group.id, group }])
+      : [],
+  ),
+);
+
 export function motionGroup(id) {
-  return MOTION_GROUP_BY_ID.get(id) ?? null;
+  const group = MOTION_GROUP_BY_ID.get(id);
+  if (group) return group;
+  const member = MOTION_MEMBER_BY_ID.get(id);
+  return member ? member.group : null;
+}
+
+/** 事件级时长：成员 id 取成员自己的，组 id 取组的。 */
+export function eventDuration(id) {
+  const member = MOTION_MEMBER_BY_ID.get(id);
+  if (member) return member.duration;
+  return motionGroup(id)?.duration ?? 0;
 }
 
 export function groupDuration(id) {

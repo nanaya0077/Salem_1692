@@ -15,12 +15,13 @@ const {
   audioGainForLevel,
 } = await import("../audio.js");
 
-test("首批音频清单是 6 条短音效 + 1 条夜晚环境垫", () => {
+test("首批音频清单是 7 条短音效 + 1 条夜晚环境垫", () => {
   assert.deepEqual(
     Object.keys(AUDIO_MANIFEST).sort(),
     [
       "amb.night",
       "sfx.card.play",
+      "sfx.conspiracy.start",
       "sfx.life.death",
       "sfx.phase.dawn",
       "sfx.reveal.flip",
@@ -30,6 +31,7 @@ test("首批音频清单是 6 条短音效 + 1 条夜晚环境垫", () => {
   );
   assert.deepEqual(SHORT_SFX_IDS.slice().sort(), [
     "sfx.card.play",
+    "sfx.conspiracy.start",
     "sfx.life.death",
     "sfx.phase.dawn",
     "sfx.reveal.flip",
@@ -93,7 +95,7 @@ test("app.js 在首次手势解锁，并接上六个事件音效", async () => {
 
 test("PWA 只预缓存 audio.js，音频文件走 /assets/ 按需缓存", async () => {
   const sw = await web("sw.js");
-  assert.match(sw, /const VERSION = "salem-v19"/);
+  assert.match(sw, /const VERSION = "salem-v20"/);
   assert.ok(sw.includes('"/audio.js"'));
   assert.doesNotMatch(sw, /"\/assets\/audio\//);
 });

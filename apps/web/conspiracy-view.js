@@ -96,3 +96,19 @@ export function conspiracyClockWarn(deadline, now) {
   return left > 0 && left <= CONSPIRACY_WARN_MS;
 }
 
+/** 换牌三拍：卷起 200 / 交换 450 / 落位 250，总计 900（与 motion-events 的 fx.conspiracy.swap 同源）。 */
+export const CONSPIRACY_SWAP_PHASES = Object.freeze({ curl: 200, fly: 450, drop: 250 });
+
+/**
+ * 演出舞台状态。
+ * previousStep 传上一帧的 step（首次渲染传 null）：
+ *   enter=true  → 这一帧才进入传染阶段，演「抽到即弃 500 + 转场 260」
+ *   stepChanged → 刚切到 pick，演「计数变化 150」
+ * 不返回任何隐藏信息，只回答「该演哪一拍」。
+ */
+export function conspiracyStage(view, previousStep = null) {
+  if (!view) return { enter: false, step: null, stepChanged: false };
+  const step = view.step === "cat" ? "cat" : "pick";
+  const enter = previousStep === null || previousStep === undefined;
+  return { enter, step, stepChanged: !enter && previousStep !== step };
+}

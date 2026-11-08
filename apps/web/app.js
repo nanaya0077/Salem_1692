@@ -22,12 +22,14 @@ import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE 
 import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
 import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText, revealBannerText } from "./reveal-view.js";
 import {
+  CONSPIRACY_SWAP_PHASES,
   canSubmitConspiracy,
   conspiracyClockText,
   conspiracyClockWarn,
   conspiracyHeading,
   conspiracyNote,
   conspiracySlots,
+  conspiracyStage,
   conspiracyWaitText,
   leftOfSeat,
 } from "./conspiracy-view.js";
@@ -38,6 +40,7 @@ import {
   getMotionLevel,
   initMotion,
   isBlocked,
+  motionCardEnter,
   motionDenied,
   motionLabel,
   motionPress,
@@ -47,7 +50,7 @@ import {
   startBlock,
 } from "./motion.js";
 import { patchKeyed } from "./render-patch.js";
-import { initAudio, playSfx, setAudioLevel, setAudioPhase, unlockAudio } from "./audio.js";
+import { haptic, initAudio, playSfx, setAudioLevel, setAudioPhase, unlockAudio } from "./audio.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -81,6 +84,7 @@ const S = {
   deal: null,
   revealWait: null,
   conspiracyPick: null,
+  conspiracyShown: null,
   conspiracyStep: null,
   dealFlipped: new Set(),
   dealKey: null,
@@ -1026,6 +1030,8 @@ function renderConspiracy() {
     bar.hidden = true;
     S.conspiracyPick = null;
     S.conspiracyStep = null;
+    if (S.conspiracyShown !== null) leaveConspiracyStage();
+    S.conspiracyShown = null;
     return;
   }
   // 换步就清选中：cat 与 pick 选的是两排不同位置号，串过去会把上一步的索引提交这一
@@ -1034,6 +1040,11 @@ function renderConspiracy() {
     S.conspiracyStep = view.step;
     S.conspiracyPick = null;
   }
+  // 拍 1–2 只在第一次见到阶段时演；拍 4 只在换步时给一次存在感。每帧重绘不能重播。
+  const stage = conspiracyStage(view, S.conspiracyShown);
+  if (stage.enter) enterConspiracyStage();
+  else if (stage.stepChanged) playConspiracyStep();
+  S.conspiracyShown = stage.step;
   const heading = conspiracyHeading(view, {
     nameOf: seatName,
     seatId: S.seatId,
@@ -1074,6 +1085,71 @@ function updateConspiracyClock() {
   clock.textContent = text;
   clock.hidden = !text;
   clock.classList.toggle("warn", conspiracyClockWarn(S.room?.conspiracyDeadline ?? null, Date.now()));
+}
+
+/**
+ * 拍 1–2：抽到即弃 500 + 阶段转场 260。压暗与印章同时起，20 秒计时不被演出推迟。
+ * 抽到的那张在服务端已经弃掉，这里不做「翻开」——它不是揭示，是废弃。
+ */
+function enterConspiracyStage() {
+  $("conspiracyVeil")?.classList.add("on");
+  $("conspiracySeal")?.classList.add("on");
+  playSfx("sfx.conspiracy.start");
+  haptic("long");
+}
+
+/** 拍 9：阶段结束把压暗、印章与残留的换牌层一起收掉。 */
+function leaveConspiracyStage() {
+  $("conspiracyVeil")?.classList.remove("on");
+  $("conspiracySeal")?.classList.remove("on");
+  const host = $("conspiracySwap");
+  if (host) host.innerHTML = "";
+}
+
+/** 拍 4：只是计数文字在变，给面板一次 150ms 的存在感。 */
+function playConspiracyStep() {
+  const bar = $("conspiracyBar");
+  if (bar && !bar.hidden) motionCardEnter(bar);
+}
+
+/**
+ * 拍 5–7：换牌三拍（卷起 200 / 交换 450 / 落位 250）。
+ * 12 人局也只演自己这一对：日志里本来只有本人相关的 conspiracySwap，
+ * 别人的牌面与位置一概不出现（#60 的私密边界）。
+ */
+function playConspiracySwap() {
+  const host = $("conspiracySwap");
+  const level = getMotionLevel();
+  if (!host || level === "off") return;
+  const speed = level === "reduced" ? 0.34 : 1;
+  const curl = Math.max(60, Math.round(CONSPIRACY_SWAP_PHASES.curl * speed));
+  const fly = Math.max(90, Math.round(CONSPIRACY_SWAP_PHASES.fly * speed));
+  const drop = Math.max(60, Math.round(CONSPIRACY_SWAP_PHASES.drop * speed));
+  host.innerHTML =
+    '<span class="conspiracy-swap-card" data-swap="out"></span>' +
+    '<span class="conspiracy-swap-card" data-swap="in"></span>';
+  const out = host.querySelector('[data-swap="out"]');
+  const incoming = host.querySelector('[data-swap="in"]');
+  if (!out || !incoming) return;
+  out.style.cssText = "position:absolute;left:calc(50% - 96px);top:42%;";
+  incoming.style.cssText = "position:absolute;left:calc(50% + 40px);top:42%;";
+  playSfx("sfx.reveal.flip");
+  haptic("short");
+  setTimeout(() => {
+    out.style.transition = "transform " + fly + "ms cubic-bezier(.2,.7,.3,1)";
+    incoming.style.transition = "transform " + fly + "ms cubic-bezier(.2,.7,.3,1)";
+    out.style.transform = "translateX(136px) rotate(-7deg)";
+    incoming.style.transform = "translateX(-136px) rotate(7deg)";
+  }, curl);
+  setTimeout(() => {
+    out.style.transition = "opacity " + drop + "ms ease-in";
+    incoming.style.transition = "opacity " + drop + "ms ease-in";
+    out.style.opacity = "0";
+    incoming.style.opacity = "0";
+  }, curl + fly);
+  setTimeout(() => {
+    host.innerHTML = "";
+  }, curl + fly + drop + 80);
 }
 
 function renderTargetBanner() {
@@ -1131,7 +1207,7 @@ function formatEvent(e) {
     case "matchmakerBroke": return '<span class="red">情侣连锁：' + e.playerIds.map(n).join("、") + " 同死。</span>";
     case "powerUsed": return n(e.playerId) + " 使用能力：" + esc(e.power) + "。";
     case "conspiracyStarted": return n(e.drawerId) + " 抽到传染，全体换牌。";
-    case "conspiracySwap": return n(e.fromId) + " 从左邻 " + n(e.toId) + " 取一张身份卡查看后洗回。";
+    case "conspiracySwap": return n(e.fromId) + " 从左邻 " + n(e.toId) + " 取走一张身份卡。";
     case "nightStarted": return '<span class="gold">夜晚降临。</span>';
     case "confession": return n(e.playerId) + " 自首" + (e.revealed ? "，翻开一张身份卡。" : "。");
     case "nightResolved": return "夜晚结束：" + n(e.targetId) + (e.saved ? " 被救下" : '<span class="red"> 被杀</span>') + "（" + esc(e.cause) + "）。";
@@ -1176,6 +1252,7 @@ function announceReveals() {
   const reveals = fresh.filter((event) => event?.type === "trialRevealed");
   const accusations = fresh.filter((event) => event?.type === "trialRevealed" && event.cause === "accusation");
   const deaths = fresh.filter((event) => event?.type === "playerDied" || event?.type === "matchmakerBroke");
+  const swaps = fresh.filter((event) => event?.type === "conspiracySwap");
   S.seenLog = log.length;
 
   if (accusations.length) showAccuseUpheld(accusations);
@@ -1187,6 +1264,7 @@ function announceReveals() {
     scheduleNextReveal();
   }
   if (deaths.length) showDeath(deaths);
+  if (swaps.length) playConspiracySwap();
 }
 
 /**
@@ -1906,8 +1984,10 @@ function resetRoomState() {
   S.dealFlipped = new Set();
   S.dealKey = null;
   S.conspiracyPick = null;
+  S.conspiracyShown = null;
   S.conspiracyStep = null;
   $("conspiracyBar").hidden = true;
+  leaveConspiracyStage();
   S.seenLog = null;
   S.revealQueue = [];
   S.flipSeen.clear();

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="传染印记">
+  <defs>
+    <radialGradient id="sealGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="55%" stop-color="#d8a94c" stop-opacity="0" />
+      <stop offset="100%" stop-color="#d8a94c" stop-opacity=".22" />
+    </radialGradient>
+  </defs>
+  <circle cx="100" cy="100" r="96" fill="url(#sealGlow)" />
+  <circle cx="100" cy="100" r="86" fill="none" stroke="#d8a94c" stroke-opacity=".7" stroke-width="2" />
+  <circle cx="100" cy="100" r="78" fill="none" stroke="#d8a94c" stroke-opacity=".34" stroke-width="1" stroke-dasharray="3 5" />
+  <circle cx="100" cy="100" r="54" fill="none" stroke="#d8a94c" stroke-opacity=".55" stroke-width="1.5" />
+  <g fill="none" stroke="#f3e6cf" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" stroke-opacity=".92">
+    <path d="M74 112c0-14 10-24 26-24s26 10 26 24" />
+    <path d="M74 112c-4-3-7-8-8-14 6 0 11 2 15 6" />
+    <path d="M126 112c4-3 7-8 8-14-6 0-11 2-15 6" />
+    <path d="M100 88v-14" />
+    <path d="M92 74l8-8 8 8" />
+  </g>
+  <circle cx="88" cy="104" r="3.2" fill="#d8a94c" />
+  <circle cx="112" cy="104" r="3.2" fill="#d8a94c" />
+  <path d="M96 118h8" stroke="#d8a94c" stroke-width="2.4" stroke-linecap="round" />
+  <g fill="#d8a94c" font-family="Georgia, 'Songti SC', serif" font-size="11" letter-spacing="4" text-anchor="middle" opacity=".78">
+    <text x="100" y="30">C O N S P I R A C Y</text>
+    <text x="100" y="178">1 6 9 2</text>
+  </g>
+</svg>

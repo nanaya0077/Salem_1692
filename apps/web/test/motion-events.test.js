@@ -9,10 +9,10 @@ import {
   motionGroup,
 } from "../motion-events.js";
 
-test("G1 表：16 个调度组、18 个成员 id", () => {
-  assert.equal(MOTION_GROUPS.length, 16);
-  assert.equal(MOTION_MEMBER_IDS.length, 18);
-  assert.equal(new Set(MOTION_MEMBER_IDS).size, 18);
+test("G1 表：20 个调度组、23 个成员 id（#58 加了传染四组与即弃一拍）", () => {
+  assert.equal(MOTION_GROUPS.length, 20);
+  assert.equal(MOTION_MEMBER_IDS.length, 23);
+  assert.equal(new Set(MOTION_MEMBER_IDS).size, 23);
 });
 
 test("只有夜晚入场与公开死亡是 block", () => {

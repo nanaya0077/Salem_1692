@@ -104,6 +104,11 @@
 
       <div id="revealBar" class="reveal-bar" hidden></div>
 
+      <!-- 传染阶段演出层：压暗 + 印章 + 换牌三拍，全部 pointer-events:none，不挡抽屉操作。 -->
+      <div id="conspiracyVeil" class="conspiracy-veil" aria-hidden="true"></div>
+      <img id="conspiracySeal" class="conspiracy-seal" src="/assets/fx/conspiracy-seal.svg" alt="" aria-hidden="true" />
+      <div id="conspiracySwap" class="conspiracy-swap" aria-hidden="true"></div>
+
       <!-- 传染阶段：抽屉式面板顶在下半屏，桌面上还能看见谁在等谁。规格见 #61，形态取自 #59 的抽屉变体。 -->
       <div id="conspiracyBar" class="conspiracy-bar" role="dialog" aria-modal="false" aria-labelledby="conspiracyTitle" hidden>
         <div class="conspiracy-head">
