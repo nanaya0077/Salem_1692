@@ -449,9 +449,11 @@ function handle(msg) {
       // 挂起揭示的公开信号在消息顶层：选择者另有 projection.pendingReveal，其他人只有这一条。
       S.revealWait = msg.revealWait ?? null;
       if (msg.room) S.room = msg.room;
-      render();
       // 翻身份卡是全桌可见的公开事件：投影一到就把新增的那几条挑出来，不等玩家自己开日志。
+      // 必须先认领（并在 auto 时 arm 收尾窗口）再 render：否则挂起态消失的那条投影会先把抽屉关掉，
+      // 900ms 的收尾说明永远看不见（#69）。
       announceReveals();
+      render();
       break;
     case "events":
       // projection already carries the full log; events are a prompt to refresh nothing.
@@ -1015,9 +1017,20 @@ function renderRevealDrawer() {
   }
   const view = S.projection?.pendingReveal ?? null;
   if (!view && S.revealAfterglowUntil > performance.now()) {
-    // 收尾态：不重渲染、不关抽屉，只把话说清并让点击穿透回牌桌。
+    // 收尾态：收掉选择指令、卡片与按钮，只留一句说明并让点击穿透回牌桌。
     const note = bar.querySelector('[data-slot="note"]');
     if (note) note.textContent = REVEAL_AFTERGLOW_TEXT;
+    const sub = bar.querySelector('[data-slot="sub"]');
+    if (sub) sub.textContent = "已自动翻开一张，等待结算。";
+    const cards = bar.querySelector('[data-slot="cards"]');
+    if (cards) cards.hidden = true;
+    const submit = bar.querySelector('[data-slot="submit"]');
+    if (submit) {
+      submit.textContent = "等待结算";
+      submit.disabled = true;
+    }
+    const decline = bar.querySelector('[data-slot="decline"]');
+    if (decline) decline.hidden = true;
     bar.style.pointerEvents = "none";
     setRevealStage(false);
     return;

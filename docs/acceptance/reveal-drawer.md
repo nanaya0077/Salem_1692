@@ -49,7 +49,7 @@ $env:PLAYERS='4';  node test/fullgame_bots.mjs   # 同理 9 / 12
 | 包 | 结果 |
 | --- | --- |
 | `packages/rules` | 70 / 70 |
-| `apps/web` | 208 / 208 |
+| `apps/web` | 209 / 209 |
 | `apps/server` | 10 / 10 脚本（12 人整局 `conspiracy=12/12`、`errors=0`） |
 
 人数回归（`fullgame_bots.mjs`，各 1 局，对 8700 实例）：
@@ -120,36 +120,34 @@ $env:PLAYERS='4';  node test/fullgame_bots.mjs   # 同理 9 / 12
 - 另有真机实拍（非注入）：`reveal-drawer-{4p-chooser,9p-chooser,4p-reduced,4p-off,chooser,picked}.png`
   与 `reveal-drawer-auto-afterglow.png`（#69 复现的收尾态，见第四节第 1 条）。
 
-### 自动代翻收尾的实际可见性（探针，2026-11-08）
+### 自动代翻收尾的实际可见性（探针，#69 修复后）
 
-代码里有 900ms 收尾窗口（`armRevealAfterglow` / `S.revealAfterglowUntil`），但探针发现**抽屉在这 900ms 里并不在屏上**：
-`handle()` 先 `render()` 再 `announceReveals()`，投影到达时 `pendingReveal` 已为空，`renderRevealDrawer()` 当场 `setDrawerOpen(false)`；
-随后 `armRevealAfterglow()` 才记下截止时间，而收尾分支只改 note 与 `pointer-events`，**不会重新打开抽屉**。
+`#69` 把 `handle()` 的顺序改成 `announceReveals()` 先于 `render()`：投影到达时先认领那条 `auto:true` 的翻牌并 arm 收尾窗口，
+随后 `render()` 走收尾分支，抽屉不关；`note` 换成「超时或托管，自动取了第一个位置。」、`sub` 换成「已自动翻开一张，等待结算。」、
+卡片与「放弃」收起、主按钮改「等待结算」且 disabled、整条 `pointer-events:none`。
 实测（先注入挂起让抽屉打开，再注入带 `auto:true` 的 `trialRevealed`）：
 
 | 距注入 | drawer.hidden | note | pointerEvents | 剩余收尾窗口 |
 | --- | --- | --- | --- | --- |
-| 0ms | true | 「超时或托管会自动取第一个未揭示位置。」 | `''` | 900ms |
-| 152ms | true | 同上 | `''` | 748ms |
-| 463ms | true | 「超时或托管，自动取了第一个位置。」 | `none` | 437ms |
-| 1069ms | true | 同上 | `''` | 已过期 |
+| 0ms | false | 「超时或托管，自动取了第一个位置。」 | `none` | 900ms |
+| 152ms | false | 同上 | `none` | 748ms |
+| 459ms | false | 同上 | `none` | 440ms |
+| 1064ms | true | 同上（随后随抽屉一起收起） | `''` | 已过期 |
 
-结论：文案与点击穿透会生效，但「留屏 900ms」这一条**视觉上不成立**，已回填 #69。
-（本轮改用 `TURN_MS='20000'` 走真实超时路径复现，量到相反结果——抽屉 `open: true`、`pointer-events: none`、
-note 已换句，见第四节第 1 条与 `shots/reveal-drawer-auto-afterglow.png`。）
+修复前同一探针整段窗口量到 `hidden === true`（`render()` 先关抽屉、`armRevealAfterglow()` 后到，收尾分支又不重开）；
+`TURN_MS='20000'` 的真实超时路径当时偶发能量到 `open: true`，即缺陷依赖调用时序。现在顺序固定，两条路径走同一段代码。
+截图：`docs/acceptance/shots/4p-auto-afterglow.png`（窗口内整条抽屉在屏、卡片已收、脚注完整）。
 
 
 ## 四、已知偏差与没能做到的
 
-1. **自动代翻「留屏 900ms」两次测量的结论不一致**。并行探针（`#64` 补记）在默认 `TURN_MS` 下量到
-   整段窗口 `#revealDrawer.hidden === true`，判「视觉上不成立」；本轮用 `TURN_MS='20000'` 复现，
-   量到 `open: true`、`pointer-events: none`、`note` 已换成「超时或托管，自动取了第一个位置。」，
-   并拍到 `shots/reveal-drawer-auto-afterglow.png`。差异只能出在时序：`renderRevealDrawer()` 若在
-   `armRevealAfterglow()` 之前被调用，抽屉当帧就被关掉，而收尾分支只改 note 不重开。
-   结论：机制生效，但依赖调用顺序，**留待单独开票排查 `announceReveals()` 与 `renderGame()` 的先后**。
-2. **「已提交，等待结算」这一帧拍不到**。挂起揭示是单人决策：提交即结算，服务端下一条投影里
+1. ~~**自动代翻「留屏 900ms」视觉上不成立**~~：**已修（#69）**。顺序改为 `announceReveals()` 先于 `render()`，
+   探针四拍都量到抽屉在屏（见上节表）；此前「两次测量不一致」的时序依赖也一并消失。
+   实拍补了 `shots/4p-auto-afterglow.png`（注入路径）与 `shots/reveal-drawer-auto-afterglow.png`（真实超时路径）。
+2. **「已提交，等待结算」这一帧真实对局里拍不到**。挂起揭示是单人决策：提交即结算，服务端下一条投影里
    `pendingReveal` 已经没了，抽屉直接关（实测提交后 50ms `#revealDrawer.hidden === true`）。
-   #69 把 `submitted` 分支的副标题与按钮改成「已提交，等待结算。」/「已提交」只是把它写对，
+   `submitted` 分支的副标题与按钮改成「已提交，等待结算。」/「已提交」是把这个瞬间的文案写对；
+   注入法可在屏上量到并拍下 `shots/4p-submitted.png`。
    断言在 `reveal-drawer.test.js`「交出去之后不再教人怎么选」。
 3. **诅咒与嫁祸没有真机实拍**。两者都要手牌里正好有 `curse` / `scapegoat`，靠对局随机凑不稳；
    覆盖率由 `packages/rules/test/pending-reveal.test.ts`「三种起因都给数字」与

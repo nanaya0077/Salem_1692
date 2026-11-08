@@ -142,6 +142,16 @@ test("自动代翻后抽屉留一会儿把话说清，且不拦截牌桌点击",
   const drawer = bodyOf(app, "function renderRevealDrawer()");
   assert.match(drawer, /S\.revealAfterglowUntil > performance\.now\(\)/, "收尾窗口内不关抽屉");
   assert.match(drawer, /note\.textContent = REVEAL_AFTERGLOW_TEXT/, "把 note 换成那句说明");
+  assert.match(drawer, /sub\.textContent = "已自动翻开一张，等待结算。"/, "副标题别再留着「选中后再点选定」");
+  assert.match(drawer, /cards\.hidden = true/, "收尾期间卡片收起，别像还能选");
+  assert.match(drawer, /submit\.textContent = "等待结算"/, "主按钮换成等待结算");
+  assert.match(drawer, /decline\.hidden = true/, "放弃按钮收起");
+  // 收尾窗口必须在 render 之前记下：否则挂起态消失的那条投影先把抽屉关掉，900ms 的说明永远看不见（#69）。
+  const projectionCase = app.slice(app.indexOf('case "projection"'), app.indexOf('case "events"'));
+  assert.ok(
+    projectionCase.indexOf("announceReveals()") < projectionCase.indexOf("render()"),
+    "先认领新翻牌（并 arm 收尾）再 render",
+  );
   assert.match(drawer, /bar\.style\.pointerEvents = "none"/, "收尾期间点击穿透回牌桌");
   assert.match(drawer, /bar\.style\.pointerEvents = ""/, "离开收尾态要还原");
   assert.match(bodyOf(app, "function resetRoomState()"), /S\.revealAfterglowUntil = 0/, "换房/退房要清干净");
