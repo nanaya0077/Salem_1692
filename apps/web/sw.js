@@ -13,7 +13,8 @@
 // salem-v17：终局四段揭晓与指控成立金色脉冲；均非阻塞，终局可点击落终态。
 // salem-v22：挂起揭示迁到共享抽屉（两步选定、放弃、等待与时钟），旧的顶部 revealBar 已删。
 // salem-v23：起因与两个数字改由挂起态自带（#68），标题按起因分支，选择者与等待者同形。
-const VERSION = "salem-v23";
+// salem-v24：自动代翻后抽屉留 900ms 说清「超时或托管，自动取了第一个位置」（#64 口径）。
+const VERSION = "salem-v24";
 const SHELL = [
   "/",
   "/styles.css",

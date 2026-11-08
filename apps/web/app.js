@@ -85,6 +85,9 @@ const S = {
   deal: null,
   revealWait: null,
   revealPick: null,
+  // 自动代翻的收尾：抽屉在屏上多留一会儿，说清「不是你自己选的」。
+  revealAfterglowUntil: 0,
+  revealAfterglowTimer: null,
   conspiracyPick: null,
   conspiracyShown: null,
   conspiracyStep: null,
@@ -984,6 +987,23 @@ function setRevealStage(open, targetId = null) {
     el.classList.toggle("reveal-target", on);
   }
 }
+/** 自动代翻后抽屉停留多久：动效三档只影响过渡，这段停留要够读完一句话。 */
+const REVEAL_AFTERGLOW_TEXT = "超时或托管，自动取了第一个位置。";
+
+function revealAfterglowMs() {
+  return getMotionLevel() === "reduced" ? 700 : 900;
+}
+
+function armRevealAfterglow() {
+  if (S.revealAfterglowTimer) clearTimeout(S.revealAfterglowTimer);
+  S.revealAfterglowUntil = performance.now() + revealAfterglowMs();
+  S.revealAfterglowTimer = setTimeout(() => {
+    S.revealAfterglowUntil = 0;
+    S.revealAfterglowTimer = null;
+    renderRevealDrawer();
+  }, revealAfterglowMs());
+}
+
 function renderRevealDrawer() {
   const bar = $("revealDrawer");
   // 传染阶段独占「要你选点什么」的位置：两条抽屉同时出现会让人不知道该点哪一个。
@@ -994,6 +1014,15 @@ function renderRevealDrawer() {
     return;
   }
   const view = S.projection?.pendingReveal ?? null;
+  if (!view && S.revealAfterglowUntil > performance.now()) {
+    // 收尾态：不重渲染、不关抽屉，只把话说清并让点击穿透回牌桌。
+    const note = bar.querySelector('[data-slot="note"]');
+    if (note) note.textContent = REVEAL_AFTERGLOW_TEXT;
+    bar.style.pointerEvents = "none";
+    setRevealStage(false);
+    return;
+  }
+  bar.style.pointerEvents = "";
   if (!view) {
     const wait = revealWaitModel(S.revealWait, { nameOf: seatName });
     if (!wait) {
@@ -1328,6 +1357,8 @@ function announceReveals() {
   }
   if (deaths.length) showDeath(deaths);
   if (swaps.length) playConspiracySwap();
+  // 超时/托管代翻：抽屉不立刻消失，留一会儿把话说完。
+  if (reveals.some((event) => event.auto === true)) armRevealAfterglow();
 }
 
 /**
@@ -2053,6 +2084,11 @@ function resetRoomState() {
   S.conspiracyStep = null;
   $("conspiracyBar").hidden = true;
   leaveConspiracyStage();
+  S.revealAfterglowUntil = 0;
+  if (S.revealAfterglowTimer) {
+    clearTimeout(S.revealAfterglowTimer);
+    S.revealAfterglowTimer = null;
+  }
   S.seenLog = null;
   S.revealQueue = [];
   S.flipSeen.clear();

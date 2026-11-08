@@ -132,3 +132,17 @@ test("12 人 3 张卡不再被撑大：固定 60px 居中", () => {
   assert.match(css, /#revealDrawer \.conspiracy-card \{[^}]*flex: 0 0 60px/, "固定 60px，不随容器拉伸");
   assert.ok(!/#revealDrawer \.conspiracy-cards \{[^}]*auto-fit/.test(css), "不能再留 auto-fit");
 });
+test("自动代翻后抽屉留一会儿把话说清，且不拦截牌桌点击", () => {
+  const app = readFileSync(join(web, "app.js"), "utf8");
+  assert.match(app, /const REVEAL_AFTERGLOW_TEXT = "超时或托管，自动取了第一个位置。"/, "文案与票面一致");
+  assert.match(app, /function revealAfterglowMs\(\)/, "停留时长单列一处");
+  assert.match(bodyOf(app, "function revealAfterglowMs()"), /"reduced" \? 700 : 900/, "reduced 700ms、其余 900ms（off 也是 900：只关过渡不省读数）");
+  assert.match(bodyOf(app, "function armRevealAfterglow()"), /S\.revealAfterglowUntil = performance\.now\(\) \+ revealAfterglowMs\(\)/, "记下截止时间");
+  assert.match(bodyOf(app, "function announceReveals()"), /reveals\.some\(\(event\) => event\.auto === true\)/, "只有规则层标了 auto 才收尾；不自己猜对位");
+  const drawer = bodyOf(app, "function renderRevealDrawer()");
+  assert.match(drawer, /S\.revealAfterglowUntil > performance\.now\(\)/, "收尾窗口内不关抽屉");
+  assert.match(drawer, /note\.textContent = REVEAL_AFTERGLOW_TEXT/, "把 note 换成那句说明");
+  assert.match(drawer, /bar\.style\.pointerEvents = "none"/, "收尾期间点击穿透回牌桌");
+  assert.match(drawer, /bar\.style\.pointerEvents = ""/, "离开收尾态要还原");
+  assert.match(bodyOf(app, "function resetRoomState()"), /S\.revealAfterglowUntil = 0/, "换房/退房要清干净");
+});
