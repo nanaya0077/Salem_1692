@@ -2,6 +2,8 @@
 
 这是 W-08 的可点原型，用来回答“6 寸竖屏上，4–12 人牌桌怎么排、自己始终看到什么、出牌与选目标怎么点”。它是静态 HTML，不接服务端；界面逻辑是简化演示，真正的规则引擎在 [`packages/rules`](../packages/rules)。
 
+> 传染阶段（#59）另有独立原型：[`conspiracy.html`](conspiracy.html)；问题、三种形态与 motion/audio 接口核对见 [`conspiracy-notes.md`](conspiracy-notes.md)。
+
 ## 运行
 
 ```bash

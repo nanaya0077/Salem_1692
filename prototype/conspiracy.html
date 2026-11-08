@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>原型 · 传染阶段（选牌 / 换牌）</title>
+<style>
+  :root{
+    --ink:#f4e8d0; --muted:#b7a58a; --gold:#d8b36a; --red:#a3352c;
+    --panel:#1b130f; --panel2:#241a14; --line:rgba(216,179,106,.22);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{background:#070504;color:var(--ink);font:14px/1.45 "Noto Serif SC",Georgia,serif;display:flex;justify-content:center;align-items:center}
+  .phone{position:relative;width:min(390px,100vw);height:min(844px,100vh);background:
+    radial-gradient(120% 70% at 50% 0%,#2a1b12 0%,#140d09 55%,#0b0705 100%);
+    overflow:hidden;display:flex;flex-direction:column;border:1px solid #3a2a1c;box-shadow:0 0 60px rgba(0,0,0,.8)}
+  .scene{flex:1;position:relative;overflow:auto;scrollbar-width:none}
+  .scene::-webkit-scrollbar{display:none}
+
+  .hud{display:flex;align-items:center;gap:8px;padding:10px 12px 6px;font-size:12px;color:var(--muted)}
+  .hud b{color:var(--ink);font-weight:600}
+  .hud .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--gold)}
+  .timer{font-variant-numeric:tabular-nums;color:var(--gold);font-weight:700;min-width:32px;text-align:right}
+  .bar{height:3px;margin:0 12px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--red),var(--gold));transition:width .2s linear}
+
+  .board{padding:10px 12px 130px;position:relative}
+  .seatrow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .seat{position:relative;border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:7px 8px;background:rgba(36,26,20,.72);min-height:56px}
+  .seat.self{border-color:rgba(216,179,106,.35)}
+  .seat.target{border-color:var(--gold);box-shadow:0 0 0 1px rgba(216,179,106,.35),0 0 18px rgba(216,179,106,.12)}
+  .seat .nm{font-size:12px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .seat .sub{font-size:10px;color:var(--muted);margin-top:2px}
+  .pips{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}
+  .pip{width:8px;height:12px;border-radius:2px;background:#3a2c20;border:1px solid rgba(255,255,255,.08)}
+  .pip.hidden{background:linear-gradient(135deg,#2a2018,#4a3826);border-color:rgba(216,179,106,.28)}
+  .pip.revealed{background:#6e5a3c}
+  .dot{width:6px;height:6px;border-radius:50%;background:#5d4a35;display:inline-block}
+  .dot.on{background:#7fbf7f;box-shadow:0 0 6px rgba(127,191,127,.5)}
+
+  .title{margin:16px 12px 6px;font-size:20px;letter-spacing:.04em}
+  .title small{display:block;font:11px/1.6 ui-sans-serif,system-ui,sans-serif;letter-spacing:.14em;color:var(--gold);margin-bottom:4px}
+  .copy{margin:0 12px;color:var(--muted);font-size:12px}
+  .cards{display:flex;gap:10px;justify-content:center;padding:14px 12px 6px;flex-wrap:wrap}
+  .card{width:64px;height:92px;border-radius:8px;border:1px solid rgba(216,179,106,.35);
+    background:linear-gradient(160deg,#2b2018,#17100c);position:relative;display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px;
+    color:var(--muted);font-size:10px;cursor:pointer}
+  .card:after{content:"";position:absolute;inset:5px;border:1px solid rgba(216,179,106,.15);border-radius:5px}
+  .card .num{position:absolute;top:-7px;left:-7px;width:20px;height:20px;border-radius:50%;background:var(--gold);color:#1a1008;font:700 11px/20px ui-sans-serif;text-align:center}
+  .card.sel{border-color:var(--gold);box-shadow:0 0 0 2px rgba(216,179,106,.3),0 8px 18px rgba(0,0,0,.4);transform:translateY(-2px)}
+  .card .art{font-size:22px;opacity:.7;margin-bottom:6px}
+  .btn{display:block;width:calc(100% - 24px);margin:14px 12px 0;padding:12px;border:0;border-radius:10px;
+    background:linear-gradient(180deg,#d8b36a,#b78f4f);color:#1a1008;font:700 14px/1 ui-sans-serif;letter-spacing:.08em;cursor:pointer}
+  .btn[disabled]{filter:grayscale(.6);opacity:.45;cursor:default}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--gold)}
+  .wait{margin:12px;padding:10px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:12px;text-align:center}
+  .wait b{color:var(--gold)}
+
+  /* A 底部抽屉 */
+  .dim{filter:brightness(.45) saturate(.7)}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(180deg,#231812,#120c09);
+    border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:8px 0 12px;box-shadow:0 -20px 50px rgba(0,0,0,.6);z-index:4}
+  .handle{width:38px;height:4px;border-radius:2px;background:rgba(255,255,255,.16);margin:4px auto 10px}
+
+  /* B 全屏仪式 */
+  .ritual{position:absolute;inset:0;background:radial-gradient(90% 60% at 50% 40%,#3a1511 0%,#160a08 60%,#090504 100%);overflow:hidden}
+  .ring{position:absolute;inset:0}
+  .rseat{position:absolute;transform:translate(-50%,-50%);border:1px solid rgba(255,255,255,.1);border-radius:9px;
+    padding:3px 5px;background:rgba(20,12,9,.85);font-size:9px;min-width:42px;text-align:center;color:var(--muted)}
+  .rseat.target{border-color:var(--gold);color:var(--ink);box-shadow:0 0 14px rgba(216,179,106,.2)}
+  .rseat .pips{justify-content:center;margin-top:3px}
+  .center{position:absolute;left:50%;top:57%;transform:translate(-50%,-50%);text-align:center;width:100%}
+  .center h1{font-size:24px;margin:6px 0 2px;letter-spacing:.06em}
+  .center .kick{font:10px/1.6 ui-sans-serif;letter-spacing:.22em;color:var(--gold)}
+  .center .hint{font:11px/1.5 ui-sans-serif;color:#b7a58a;margin-top:4px}
+  .fan{height:110px;position:relative;margin:6px auto 0;width:190px}
+  .fan .card{position:absolute;left:50%;top:8px;margin-left:-32px}
+  .fan .card.c0{transform:rotate(-9deg) translateX(-26px)}
+  .fan .card.c1{transform:translateY(-4px)}
+  .fan .card.c2{transform:rotate(9deg) translateX(26px)}
+  .fan.row{display:flex;justify-content:center;align-items:flex-end;gap:5px;width:auto;height:auto;margin-top:10px}
+  .fan.row .card{position:static;margin:0;width:54px;height:80px;transform:none}
+  .ritual-cta{position:absolute;left:0;right:0;bottom:0;padding:10px 12px 14px;background:linear-gradient(180deg,transparent,#160a08 38%,#120806);z-index:2}
+  .ritual-cta .wait{margin:0 0 8px}
+  .ritual-cta .btn{width:100%;margin:0}
+
+  /* C 原位高亮 */
+  .inline{padding:8px 12px 150px}
+  .inline .seat.target{box-shadow:0 0 0 2px var(--gold),0 0 30px rgba(216,179,106,.18)}
+  .chips{display:flex;gap:6px;justify-content:center;margin-top:8px;flex-wrap:wrap}
+  .chip{width:44px;height:60px;border-radius:7px;border:1px solid rgba(216,179,106,.4);background:linear-gradient(150deg,#2a2018,#17100c);
+    display:flex;align-items:center;justify-content:center;color:var(--gold);font:700 12px/1 ui-sans-serif;cursor:pointer;position:relative}
+  .chip.sel{outline:2px solid var(--gold);outline-offset:2px}
+  .floatbar{position:absolute;left:10px;right:10px;bottom:12px;background:rgba(27,19,15,.94);border:1px solid var(--line);
+    border-radius:14px;padding:10px;display:flex;align-items:center;gap:10px;backdrop-filter:blur(6px)}
+  .floatbar .grow{flex:1;min-width:0}
+  .floatbar .t{font-size:12px}
+  .floatbar .s{font-size:10px;color:var(--muted)}
+  .floatbar .btn{width:auto;margin:0;padding:10px 14px;flex:none}
+
+  /* 换牌 */
+  .exchange{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(8,5,4,.78);z-index:6}
+  .fly{display:flex;align-items:center;gap:18px;font-size:12px;color:var(--muted)}
+  .fly .mini{width:38px;height:54px;border-radius:5px;border:1px solid var(--gold);background:#2a2018;position:relative}
+  .fly .mini:after{content:"";position:absolute;inset:4px;border:1px solid rgba(216,179,106,.2);border-radius:3px}
+  .fly .arrow{color:var(--gold);font-size:20px;animation:pulse .8s infinite alternate}
+  @keyframes pulse{to{transform:translateX(4px);opacity:.5}}
+  .fly .mini.a{animation:slide 1.2s ease-in-out infinite}
+  @keyframes slide{0%{transform:translateX(-10px);opacity:.4}60%{transform:translateX(18px);opacity:1}100%{transform:translateX(18px);opacity:0}}
+
+  .result{padding:16px 14px 150px}
+  .result h1{font-size:22px;margin:8px 0 4px}
+  .newcard{margin:14px auto;width:110px;height:158px;border-radius:10px;border:1px solid var(--gold);
+    background:linear-gradient(160deg,#33251b,#17100c);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+  .newcard .art{font-size:34px;color:var(--gold)}
+  .newcard .k{font-size:12px;color:var(--muted)}
+  .newcard.revealed .k{color:var(--ink);font-size:15px}
+
+  .variantbar{display:flex;gap:4px;align-items:center;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:#0f0a07;border-top:1px solid rgba(255,255,255,.05);flex:none}
+  .seg{flex:1;border:1px solid transparent;background:transparent;color:#8d7a62;font:11px/1 ui-sans-serif;padding:8px 4px;border-radius:7px;cursor:pointer}
+  .seg.on{color:#1a1008;background:var(--gold)}
+  .seg.count{flex:0 0 auto;padding:8px 7px}
+  .seg.count.on{background:#3a2a1c;color:var(--gold)}
+  details.debug{position:absolute;left:8px;right:8px;bottom:56px;z-index:9;background:rgba(10,7,5,.94);border:1px solid var(--line);border-radius:8px;font:10px/1.45 ui-monospace,monospace;color:#9e8d76;padding:6px 8px;max-height:38%;overflow:auto}
+  details.debug summary{color:var(--gold);cursor:pointer;font:11px/1.4 ui-sans-serif}
+  details.debug pre{white-space:pre-wrap;margin:6px 0 0}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="scene" id="scene"></div>
+  <nav class="variantbar" id="bar">
+    <button class="seg" data-variant="sheet">抽屉</button>
+    <button class="seg" data-variant="ritual">仪式</button>
+    <button class="seg" data-variant="inline">原位</button>
+    <button class="seg count" data-count="4">4</button>
+    <button class="seg count" data-count="9">9</button>
+    <button class="seg count" data-count="12">12</button>
+    <button class="seg" id="debugBtn">状态</button>
+  </nav>
+</div>
+<script>
+(function(){
+  "use strict";
+  var qs = new URLSearchParams(location.search);
+  var NAMES = ["你","塞缪尔","威廉","蒂图巴","贾尔斯","玛丽","约翰","丽贝卡","科顿","阿比盖尔","乔治","托马斯"];
+  var state = {
+    variant: qs.get("variant") || "sheet",
+    count: Number(qs.get("count") || 9),
+    step: "cat",          // cat | pick | exchanging | done
+    waiting: false,
+    remaining: 20,
+    deadline: 0,
+    catHolder: 2,
+    catPick: null,
+    selfPick: null,
+    picks: {},
+    bots: {},
+    events: [],
+    toast: "",
+    viewed: false,
+    revealed: {},
+    seats: [],
+    timer: null,
+    debug: false
+  };
+
+  function leftOf(id){ return (id + 1) % state.count; }
+  function kindsFor(id){
+    if (id === state.catHolder) return ["witch","townspeople","townspeople","townspeople","townspeople"];
+    if (id === 1) return ["constable","witch","townspeople","townspeople","townspeople"];
+    return ["townspeople","townspeople","witch","townspeople","townspeople"];
+  }
+  function build(){
+    state.seats = [];
+    for (var i = 0; i < state.count; i++) {
+      var kinds = kindsFor(i).slice(0, state.count >= 10 ? 3 : 5);
+      state.seats.push({ id:i, name: NAMES[i], alive:true, trials: kinds.map(function(k){ return {kind:k, revealed:false}; }) });
+    }
+    state.catHolder = 2;
+    state.catPick = null; state.selfPick = null; state.picks = {}; state.bots = {};
+    state.revealed = {}; state.viewed = false; state.toast = "";
+    state.events = [{ type:"conspiracyStarted", drawerId:0 }];
+    startStep("cat");
+  }
+  function seat(id){ return state.seats[id]; }
+  function hiddenSlots(id){
+    return seat(id).trials.map(function(t, i){ return t.revealed ? -1 : i; }).filter(function(i){ return i >= 0; });
+  }
+  function subjectId(){ return state.step === "cat" ? state.catHolder : leftOf(0); }
+  function stepMs(){ return 20000; }
+  function startStep(step){
+    state.step = step; state.waiting = false; state.selfPick = null; state.picks = {}; state.bots = {};
+    state.remaining = 20; state.deadline = Date.now() + stepMs();
+    if (step === "pick") {
+      // 机器人陆续提交，演示“等待其他人”
+      state.seats.forEach(function(s){
+        if (s.id === 0 || !s.alive) return;
+        var delay = 900 + s.id * 700;
+        setTimeout(function(){
+          if (state.step !== "pick") return;
+          state.bots[s.id] = true;
+          state.picks[s.id] = hiddenSlots(s.id)[0];
+          render();
+          if (allSubmitted()) settleSoon();
+        }, delay);
+      });
+    }
+    startTimer();
+    render();
+  }
+  function startTimer(){
+    clearInterval(state.timer);
+    state.timer = setInterval(function(){
+      if (state.step === "exchanging" || state.step === "done") { clearInterval(state.timer); return; }
+      state.remaining = Math.max(0, Math.ceil((state.deadline - Date.now()) / 1000));
+      if (state.remaining <= 0) {
+        clearInterval(state.timer);
+        autoDefault();
+      }
+      render();
+    }, 250);
+  }
+  function autoDefault(){
+    state.toast = "20 秒到，已按默认取第一张";
+    if (state.step === "cat" && state.catPick === null) {
+      submitCat(hiddenSlots(state.catHolder)[0]);
+    } else if (state.step === "pick" && state.selfPick === null) {
+      submitPick(hiddenSlots(leftOf(0))[0]);
+    }
+  }
+  function submitCat(slot){
+    if (state.step !== "cat" || slot == null) return;
+    state.catPick = slot;
+    state.revealed[state.catHolder] = state.revealed[state.catHolder] || {};
+    state.revealed[state.catHolder][slot] = true;
+    seat(state.catHolder).trials[slot].revealed = true;
+    state.events.push({ type:"trialRevealed", playerId:state.catHolder, kind:seat(state.catHolder).trials[slot].kind, cause:"conspiracy", chooserId:0 });
+    state.waiting = true; state.toast = "第 1 步已结算";
+    render();
+    setTimeout(function(){ if (state.step === "cat") startStep("pick"); }, 900);
+  }
+  function submitPick(slot){
+    if (state.step !== "pick" || slot == null) return;
+    state.selfPick = slot; state.picks[0] = slot; state.waiting = true;
+    render();
+    if (allSubmitted()) settleSoon();
+  }
+  function allSubmitted(){
+    var eligible = state.seats.filter(function(s){ return s.alive; });
+    return eligible.every(function(s){
+      if (!s.alive) return true;
+      if (s.id === 0) return state.selfPick !== null;
+      return state.picks[s.id] !== undefined || state.bots[s.id];
+    });
+  }
+  function settleSoon(){ setTimeout(settle, 500); }
+  function settle(){
+    if (state.step !== "pick" || state.step === "exchanging") return;
+    // 未提交者取左邻第一张（兜底）
+    state.seats.forEach(function(s){
+      if (!s.alive || s.id === 0) return;
+      if (state.picks[s.id] === undefined) state.picks[s.id] = hiddenSlots(leftOf(s.id))[0];
+    });
+    if (state.picks[0] === undefined) state.picks[0] = hiddenSlots(leftOf(0))[0];
+    state.events.push({ type:"conspiracySwap", fromId:leftOf(0), toId:0 });
+    state.step = "exchanging"; state.waiting = false;
+    clearInterval(state.timer);
+    render();
+    setTimeout(function(){
+      var slot = state.picks[0];
+      var from = leftOf(0);
+      var t = seat(from) && seat(from).trials[slot];
+      if (t) seat(0).trials.push({ kind:t.kind, revealed:false });
+      state.step = "done"; render();
+    }, 1400);
+  }
+  function reset(){ clearInterval(state.timer); build(); }
+  function pipsHTML(s, n){
+    var out = "";
+    for (var i = 0; i < Math.min(s.trials.length, n || 5); i++) {
+      out += '<span class="pip ' + (s.trials[i].revealed ? "revealed" : "hidden") + '"></span>';
+    }
+    return out;
+  }
+  function seatRow(){
+    return '<div class="seatrow">' + state.seats.map(function(s){
+      var target = (state.step === "cat" && s.id === state.catHolder) || (state.step === "pick" && s.id === leftOf(0));
+      var submitted = s.id === 0 ? state.selfPick !== null : (state.picks[s.id] !== undefined || state.bots[s.id]);
+      return '<div class="seat ' + (s.id === 0 ? "self " : "") + (target ? "target" : "") + '">' +
+        '<div class="nm">' + s.name + (s.id === 0 ? "（你）" : "") + '</div>' +
+        '<div class="sub">身份卡 ' + s.trials.length + ' · <span class="dot ' + (submitted ? "on" : "") + '"></span></div>' +
+        '<div class="pips">' + pipsHTML(s, 5) + '</div></div>';
+    }).join("") + '</div>';
+  }
+  function candidateCards(slots, selected){
+    return slots.map(function(slot, i){
+      return '<div class="card ' + (selected === slot ? "sel" : "") + '" data-slot="' + slot + '">' +
+        '<span class="num">' + (i + 1) + '</span><span class="art">✦</span><span>位置 ' + (slot + 1) + '</span></div>';
+    }).join("");
+  }
+  function countdownHTML(){
+    var pct = Math.max(0, Math.min(1, state.remaining / 20));
+    return '<div class="bar"><i style="width:' + Math.round(pct * 100) + '%"></i></div>';
+  }
+  function hud(){
+    var label = state.step === "cat" ? "第 1/2 步 · 黑猫揭示" : state.step === "pick" ? "第 2/2 步 · 同时换牌" : state.step === "exchanging" ? "换牌结算" : "结算完成";
+    return '<div class="hud"><span class="pill">传染</span><b>' + label + '</b>' +
+      '<span class="right"><span class="timer">' + state.remaining + 's</span><span class="pill">' + state.count + ' 人</span></span></div>' + countdownHTML();
+  }
+  function toastHTML(){ return state.toast ? '<div class="wait">' + state.toast + '</div>' : ""; }
+  function waitingHTML(){
+    if (!state.waiting) return "";
+    var eligible = state.seats.filter(function(s){ return s.alive; }).length;
+    var n = state.step === "cat" ? 1 : (state.selfPick !== null ? 1 : 0) + Object.keys(state.bots).length;
+    return '<div class="wait">已提交 · 等待其他玩家 <b>' + n + '/' + eligible + '</b></div>';
+  }
+  function submitBtn(label){
+    return '<button class="btn" id="submit"' + (state.waiting ? " disabled" : "") + '>' + (state.waiting ? "等待中…" : label) + '</button>';
+  }
+
+  function viewSheet(){
+    var subject = subjectId();
+    var slots = hiddenSlots(subject);
+    var title = state.step === "cat" ? "翻开黑猫持有者的一张身份卡" : "从 " + seat(leftOf(0)).name + " 面前取一张";
+    var sub = state.step === "cat" ? "只有你（抽到者）能选。" : "所有人同时选，收齐即结算；你选的位置会公开。";
+    return hud() +
+      '<div class="board dim">' + seatRow() + '</div>' +
+      '<div class="sheet"><div class="handle"></div>' +
+        '<div class="title"><small>传染 · ' + (state.step === "cat" ? "STEP 1" : "STEP 2") + '</small>' + title + '</div>' +
+        '<p class="copy">' + sub + '</p>' +
+        '<div class="cards">' + candidateCards(slots, state.step === "cat" ? state.catPick : state.selfPick) + '</div>' +
+        waitingHTML() + toastHTML() +
+        (state.waiting ? "" : submitBtn(state.step === "cat" ? "翻开并结算" : "确认取这张")) +
+      '</div>';
+  }
+
+  function viewRitual(){
+    var subject = subjectId();
+    var slots = hiddenSlots(subject);
+    var title = state.step === "cat" ? "翻开一张" : "取一张";
+    var sceneEl = document.getElementById("scene");
+    var W = (sceneEl && sceneEl.clientWidth) || 390;
+    var H = (sceneEl && sceneEl.clientHeight) || 768;
+    var cx = W / 2, cy = H * 0.30, r = Math.min(W * 0.27, H * 0.115);
+    var ring = state.seats.map(function(s, i){
+      var a = (-90 + i * 360 / state.count) * Math.PI / 180;
+      var x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      var target = (state.step === "cat" && s.id === state.catHolder) || (state.step === "pick" && s.id === leftOf(0));
+      return '<div class="rseat ' + (target ? "target" : "") + '" style="left:' + x + 'px;top:' + y + 'px">' + s.name +
+        '<div class="pips">' + pipsHTML(s, 3) + '</div></div>';
+    }).join("");
+    var cards = slots.map(function(slot, i){
+      return '<div class="card c' + i + ' ' + ((state.step === "cat" ? state.catPick : state.selfPick) === slot ? "sel" : "") + '" data-slot="' + slot + '">' +
+        '<span class="num">' + (i + 1) + '</span><span class="art">✦</span></div>';
+    }).join("");
+    return '<div class="ritual">' + hud() + '<div class="ring">' + ring + '</div>' +
+      '<div class="center"><div class="kick">CONSPIRACY · ' + (state.step === "cat" ? "STEP 1" : "STEP 2") + '</div>' +
+      '<h1>' + title + '</h1><div class="fan ' + (slots.length > 3 ? "row" : "") + '">' + cards + '</div>' +
+      '<div class="hint">' + (state.step === "cat" ? "黑猫在 " + seat(state.catHolder).name + " 面前" : "左邻是 " + seat(leftOf(0)).name) + '</div></div>' +
+      '<div class="ritual-cta">' + waitingHTML() + toastHTML() + submitBtn(state.step === "cat" ? "翻开" : "确认") + '</div></div>';
+  }
+
+  function viewInline(){
+    var subject = subjectId();
+    var slots = hiddenSlots(subject);
+    var title = state.step === "cat" ? "选黑猫持有者一张身份卡" : "选左邻一张身份卡";
+    var chips = slots.map(function(slot, i){
+      return '<div class="chip ' + ((state.step === "cat" ? state.catPick : state.selfPick) === slot ? "sel" : "") + '" data-slot="' + slot + '">' + (i + 1) + '</div>';
+    }).join("");
+    return hud() +
+      '<div class="inline"><div class="title" style="margin:12px 0 6px"><small>' + title + '</small>' +
+      (state.step === "cat" ? "只有你能选" : "选中后公开位置号") + '</div>' +
+      seatRow() +
+      '<div class="chips">' + chips + '</div>' +
+      '<div style="color:#8d7a62;font-size:11px;text-align:center;margin-top:8px">' +
+      (state.step === "cat" ? "黑猫持有者：" + seat(state.catHolder).name : "左邻：" + seat(leftOf(0)).name) + '</div></div>' +
+      '<div class="floatbar"><div class="grow"><div class="t">' + (state.waiting ? "已提交，等待其他人" : "选一张") + '</div>' +
+      '<div class="s">' + state.remaining + 's 后自动取第一张</div></div>' +
+      '<button class="btn" id="submit"' + (state.waiting ? " disabled" : "") + '>' + (state.waiting ? "等待中" : "提交") + '</button></div>' +
+      waitingHTML() + toastHTML();
+  }
+
+  function viewExchange(){
+    return '<div class="board"><div class="title"><small>CONSPIRACY</small>换牌中…</div>' +
+      '<p class="copy">每人从左邻取一张未揭示身份卡，按到达顺序放进自己的身份卡行。</p></div>' +
+      '<div class="exchange"><div class="fly"><span>' + seat(leftOf(0)).name + '</span><span class="mini a"></span><span class="arrow">→</span><span class="mini"></span><span>你</span></div>' +
+      '<div style="font:10px/1.6 ui-sans-serif;letter-spacing:.18em;color:#d8b36a">CONSPIRACY SWAP</div></div>';
+  }
+  function viewDone(){
+    var last = seat(0).trials[seat(0).trials.length - 1];
+    var kindName = last ? {witch:"女巫", constable:"警长", townspeople:"平民"}[last.kind] : "未知";
+    var revealed = state.viewed;
+    return '<div class="board result"><div class="title"><small>CONSPIRACY · 结算</small>你收到一张身份卡</div>' +
+      '<div class="newcard ' + (revealed ? "revealed" : "") + '" id="newcard"><span class="art">' + (revealed ? "◈" : "✦") + '</span>' +
+      '<span class="k">' + (revealed ? kindName : "点按查看（只有你能看）") + '</span></div>' +
+      '<p class="copy">换牌按到达顺序追加；这张牌的位置会暴露给其他人，但牌面只有你能看。</p>' +
+      '<div class="wait">本轮事件：conspiracyStarted → trialRevealed → conspiracySwap</div>' +
+      '<button class="btn ghost" id="restart">再走一遍</button></div>';
+  }
+
+  function render(){
+    var scene = document.getElementById("scene");
+    if (!scene) return;
+    var body = state.step === "exchanging" ? viewExchange() :
+      state.step === "done" ? viewDone() :
+      state.variant === "ritual" ? viewRitual() :
+      state.variant === "inline" ? viewInline() : viewSheet();
+    var dbg = state.debug ? '<details class="debug" open><summary>projection / events</summary><pre>' +
+      JSON.stringify({
+        variant: state.variant,
+        step: state.step,
+        waiting: state.waiting,
+        remaining: state.remaining,
+        projection: {
+          phase: state.step === "done" ? "action" : "conspiracy",
+          conspiracy: state.step === "done" ? null : {
+            step: state.step === "exchanging" ? "pick" : state.step,
+            drawerId: 0,
+            catSeatId: state.catHolder,
+            submitted: state.waiting,
+            submittedCount: state.step === "cat" ? (state.waiting ? 1 : 0) : (state.selfPick !== null ? 1 : 0) + Object.keys(state.bots).length,
+            eligibleCount: state.step === "cat" ? 1 : state.seats.filter(function(s){ return s.alive; }).length,
+            candidates: state.waiting ? [] : hiddenSlots(subjectId()),
+            revealed: []
+          }
+        },
+        events: state.events
+      }, null, 2) + '</pre></details>' : "";
+    scene.innerHTML = body + dbg;
+    document.querySelectorAll("[data-variant]").forEach(function(b){ b.classList.toggle("on", b.dataset.variant === state.variant); });
+    document.querySelectorAll("[data-count]").forEach(function(b){ b.classList.toggle("on", Number(b.dataset.count) === state.count); });
+  }
+
+  function setVariant(v){
+    state.variant = v;
+    var q = new URLSearchParams(location.search); q.set("variant", v);
+    history.replaceState(null, "", "?" + q.toString());
+    render();
+  }
+  function setCount(n){
+    state.count = n;
+    var q = new URLSearchParams(location.search); q.set("count", String(n));
+    history.replaceState(null, "", "?" + q.toString());
+    reset();
+  }
+
+  document.addEventListener("click", function(e){
+    var t = e.target.closest("[data-variant]");
+    if (t) { setVariant(t.dataset.variant); return; }
+    t = e.target.closest("[data-count]");
+    if (t) { setCount(Number(t.dataset.count)); return; }
+    if (e.target.closest("#debugBtn")) { state.debug = !state.debug; render(); return; }
+    if (e.target.closest("#restart")) { reset(); return; }
+    if (e.target.closest("#newcard")) { state.viewed = true; render(); return; }
+    if (e.target.closest("#submit")) {
+      if (state.waiting) return;
+      if (state.step === "cat") submitCat(state.catPick === null ? hiddenSlots(state.catHolder)[0] : state.catPick);
+      else if (state.step === "pick") submitPick(state.selfPick === null ? hiddenSlots(leftOf(0))[0] : state.selfPick);
+      return;
+    }
+    t = e.target.closest("[data-slot]");
+    if (t) {
+      var slot = Number(t.dataset.slot);
+      if (state.step === "cat") { state.catPick = slot; render(); }
+      else if (state.step === "pick") { state.selfPick = slot; render(); }
+    }
+  });
+  document.addEventListener("keydown", function(e){
+    if (e.target.matches("input,textarea,[contenteditable]")) return;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      var order = ["sheet","ritual","inline"];
+      var i = order.indexOf(state.variant);
+      i = (i + (e.key === "ArrowRight" ? 1 : -1) + order.length) % order.length;
+      setVariant(order[i]);
+    }
+  });
+
+  build();
+})();
+</script>
+</body>
+</html>
