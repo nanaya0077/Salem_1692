@@ -238,7 +238,10 @@
           <h2 id="overTitle">对局结束</h2>
           <p id="overReason" class="overlay-lead"></p>
           <div id="overRoles" class="over-roles"></div>
-          <button id="backLobby" class="btn primary big">返回大厅</button>
+          <div class="over-actions">
+            <button id="backLobby" class="btn primary big" type="button">返回房间大厅</button>
+            <button id="leaveOverBtn" class="btn ghost big" type="button">离开房间</button>
+          </div>
         </div>
       </div>
     </section>
@@ -325,7 +328,17 @@
       </div>
     </div>
 
+    <div id="quickChat" class="quick-chat" role="toolbar" aria-label="快捷语" hidden>
+      <button type="button" class="quick-chip" data-quick-chat="快点出牌，别犹豫！">快点出牌</button>
+      <button type="button" class="quick-chip" data-quick-chat="我真是好人，别挂我！">我是好人</button>
+      <button type="button" class="quick-chip" data-quick-chat="这人绝对是女巫，集中指控！">怀疑女巫</button>
+      <button type="button" class="quick-chip" data-quick-chat="谁有辩护？救我一手！">求救辩护</button>
+      <button type="button" class="quick-chip" data-quick-chat="黑猫在谁那？小心传染！">注意黑猫</button>
+      <button type="button" class="quick-chip" data-quick-chat="警长今晚记得保我！">求木槌保</button>
+    </div>
+
     <div id="chatBar" class="chat-bar" hidden>
+      <button id="quickChatBtn" class="btn tiny ghost" type="button" title="快捷语" aria-expanded="false" aria-controls="quickChat">快捷</button>
       <input id="chatInput" maxlength="120" placeholder="快捷语/文字…" />
       <button id="chatSend" class="icon-btn" title="发送">➤</button>
     </div>

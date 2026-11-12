@@ -84,4 +84,37 @@ test("终局遮罩仍只有一份，入口与返回按钮都在", async () => {
   assert.ok(html.includes('id="overReason"'));
   assert.ok(html.includes('id="overRoles"'));
   assert.ok(html.includes('id="backLobby"'));
+  assert.ok(html.includes('id="leaveOverBtn"'));
+});
+
+test("全员回合倒计时、原房返回大厅、快捷语与未读角标、弹窗 Esc 均已接线（#75）", async () => {
+  const src = await web("app.js");
+  const html = await web("index.html");
+  const timers = bodyOf(src, "function updateTimers()");
+  assert.ok(
+    timers.includes("const turnDeadline = p?.turnDeadline ?? S.room?.turnDeadline ?? null"),
+    "updateTimers 读取公开或私密的 turnDeadline 供全桌显示剩余秒数",
+  );
+  assert.ok(
+    timers.includes("const actionLeft = isActionPhase && turnDeadline ? seconds(turnDeadline) : null"),
+    "action 相位下非当前行动者也能看到倒计时秒数",
+  );
+  assert.ok(
+    timers.includes("const warn = myTurnNow && actionLeft !== null && actionLeft <= 10"),
+    "最后 10 秒脉冲告警只对当前行动者本人触发",
+  );
+
+  const returnLobby = bodyOf(src, "function returnToRoomLobby()");
+  assert.ok(returnLobby.includes('send({ type: "return-lobby" })'), "返回房间大厅发送 return-lobby");
+
+  assert.ok(html.includes('id="quickChat"'), "index.html 含快捷语工具栏");
+  assert.ok(html.includes('id="quickChatBtn"'), "chatBar 含快捷语开关按钮");
+  assert.equal((html.match(/data-quick-chat="/g) || []).length, 6, "6 条常用快捷语芯片");
+
+  const bind = bodyOf(src, "function bind()");
+  assert.ok(bind.includes('has-unread'), "点开对局信息清除未读红点");
+  for (const fn of ["closeProfile()", "closeRoleInfo()", "closeModal()", "closePower()"]) {
+    assert.ok(bind.includes(fn), "Escape 统一关闭 " + fn);
+  }
+  assert.equal((src.match(/avatars:\s*new Map\(\)/g) || []).length, 1, "S.avatars 重复键已清理");
 });

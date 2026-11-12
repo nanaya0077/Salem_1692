@@ -243,7 +243,7 @@ test("传染改用壳：不再自己摸标题、副标与卡片的 DOM", async (
 
 test("drawer-shell.js 进壳且版本跟着升", async () => {
   const sw = await readFile(join(webRoot, "sw.js"), "utf8");
-  assert.match(sw, /const VERSION = "salem-v25"/);
+  assert.match(sw, /const VERSION = "salem-v26"/);
   const shell = sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = [")));
   assert.ok(shell.includes('"/drawer-shell.js"'), "预缓存清单要有壳");
   const cacheable = sw.slice(sw.indexOf("const cacheable"));

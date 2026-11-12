@@ -112,7 +112,7 @@ const S = {
   roomGone: false,
   queued: null,
   sent: [],
-  avatars: new Map(),
+  unreadLog: false,
   flipSeen: new Map(),
   seenLog: null,
   revealQueue: [],
@@ -454,6 +454,9 @@ function handle(msg) {
       break;
     case "room":
       S.room = msg.room;
+      if (msg.room?.phase === "lobby" && S.projection) {
+        resetGameRoundState();
+      }
       render();
       break;
     case "projection":
@@ -479,7 +482,11 @@ function handle(msg) {
       S.chats.push(msg);
       if (!S.chats.length || S.chats.length > 60) S.chats = S.chats.slice(-60);
       renderLog();
-      if ($("logDrawer").hidden) toast(msg.name + "：" + msg.text);
+      if ($("logDrawer").hidden) {
+        S.unreadLog = true;
+        $("logBtn")?.classList.add("has-unread");
+        toast(msg.name + "：" + msg.text);
+      }
       break;
     case "error": {
       const outcome = errorOutcome({ reason: msg.reason, rejoining: S.rejoining });
@@ -1140,7 +1147,7 @@ function renderRevealDrawer() {
 function updateRevealClock() {
   const bar = $("revealDrawer");
   if (!bar || bar.hidden) return;
-  const deadline = S.private?.turnDeadline ?? null;
+  const deadline = S.private?.turnDeadline ?? S.room?.turnDeadline ?? null;
   const left = deadline ? deadline - Date.now() : null;
   applyDrawerModel(bar, {
     clockText: left === null ? "" : Math.max(0, Math.ceil(left / 1000)) + " 秒",
@@ -1594,7 +1601,12 @@ function renderOverlays() {
     $("overOverlay").classList.remove("entering");
     $("overOverlay").dataset.stage = "0";
   }
-  $("chatBar").hidden = !(S.room && S.room.phase !== "lobby" && phase !== "gameOver");
+  const chatVisible = Boolean(S.room && S.room.phase !== "lobby" && phase !== "gameOver");
+  $("chatBar").hidden = !chatVisible;
+  if (!chatVisible && $("quickChat")) {
+    $("quickChat").hidden = true;
+    $("quickChatBtn")?.setAttribute("aria-expanded", "false");
+  }
   if (phase === "deal") renderDeal();
   if (phase === "night") renderNight();
   if (phase === "dawn") renderDawn();
@@ -1735,13 +1747,15 @@ function updateTimers() {
     updateRevealClock();
     return;
   }
-  const myTurnNow = S.projection?.phase === "action" && S.projection.currentPlayerId === S.seatId;
-  const actionLeft = myTurnNow && p?.turnDeadline ? seconds(p.turnDeadline) : null;
+  const isActionPhase = S.projection?.phase === "action";
+  const myTurnNow = isActionPhase && S.projection.currentPlayerId === S.seatId;
+  const turnDeadline = p?.turnDeadline ?? S.room?.turnDeadline ?? null;
+  const actionLeft = isActionPhase && turnDeadline ? seconds(turnDeadline) : null;
   $("turnBadge").textContent = S.turnLabel + (actionLeft !== null ? " · " + actionLeft + "s" : "");
-  const warn = actionLeft !== null && actionLeft <= 10;
+  const warn = myTurnNow && actionLeft !== null && actionLeft <= 10;
   motionTimerWarn($("turnBadge"), warn);
   if (warn) {
-    const key = String(p?.turnDeadline ?? "");
+    const key = String(turnDeadline ?? "");
     if (S.timerWarnKey !== key) {
       S.timerWarnKey = key;
       playSfx("sfx.timer.warn");
@@ -2131,19 +2145,16 @@ function submitDawn() {
   act({ kind: "dawn", targetId: S.dawnTarget });
 }
 
-// 房间状态归零：终态、主动离开、被踢共用这一份。存档、房间/投影/私密、座位与
-// 抬手挂着的面板状态一起清掉，然后回落地页。
-function resetRoomState() {
-  clearSession();
-  resetAvatars(null);
-  S.room = null;
+/** 清理单局内的面板、投影与动效计时状态（保留房间、座位与头像，供原房再来一局或退房复用）。 */
+function resetGameRoundState() {
   S.projection = null;
   S.private = null;
-  S.seatId = null;
   S.pending = null;
   S.nightKey = null;
   S.dawnKey = null;
   S.deal = null;
+  S.revealWait = null;
+  S.revealPick = null;
   S.dealFlipped = new Set();
   S.dealKey = null;
   S.conspiracyPick = null;
@@ -2176,6 +2187,65 @@ function resetRoomState() {
   hideDeath();
   $("revealBanner").hidden = true;
   closeModal();
+  closePower();
+  closeRoleInfo();
+}
+
+// 房间状态归零：终态、主动离开、被踢共用这一份。存档、房间/投影/私密、座位与
+// 抬手挂着的面板状态一起清掉，然后回落地页。
+function resetRoomState() {
+  clearSession();
+  resetAvatars(null);
+  S.room = null;
+  S.projection = null;
+  S.private = null;
+  S.seatId = null;
+  S.pending = null;
+  S.nightKey = null;
+  S.dawnKey = null;
+  S.deal = null;
+  S.revealWait = null;
+  S.revealPick = null;
+  S.dealFlipped = new Set();
+  S.dealKey = null;
+  S.conspiracyPick = null;
+  S.conspiracyShown = null;
+  S.conspiracyStep = null;
+  $("conspiracyBar").hidden = true;
+  leaveConspiracyStage();
+  S.revealAfterglowUntil = 0;
+  if (S.revealAfterglowTimer) {
+    clearTimeout(S.revealAfterglowTimer);
+    S.revealAfterglowTimer = null;
+  }
+  S.seenLog = null;
+  S.revealQueue = [];
+  S.flipSeen.clear();
+  if (S.revealTimer) {
+    clearTimeout(S.revealTimer);
+    S.revealTimer = null;
+  }
+  if (S.revealDelay) {
+    clearTimeout(S.revealDelay);
+    S.revealDelay = null;
+  }
+  clearTimeout(S.phaseTimer);
+  S.phaseTimer = null;
+  S.lastPhase = null;
+  S.suppressPhaseEntrance = true;
+  S.overShown = false;
+  clearOverTimers();
+  hideDeath();
+  $("revealBanner").hidden = true;
+  S.unreadLog = false;
+  $("logBtn")?.classList.remove("has-unread");
+  $("logDrawer").hidden = true;
+  if ($("quickChat")) {
+    $("quickChat").hidden = true;
+    $("quickChatBtn")?.setAttribute("aria-expanded", "false");
+  }
+  closeModal();
+  closePower();
   closeProfile();
   closeRoleInfo();
   render();
@@ -2233,6 +2303,25 @@ function leaveToLanding() {
   if (S.ws && S.ws.readyState === WebSocket.OPEN && S.room) send({ type: "leave" });
   resetRoomState();
   setTimeout(() => { S.leaving = false; }, 300);
+}
+
+function returnToRoomLobby() {
+  if (!S.room) {
+    leaveToLanding();
+    return;
+  }
+  if (!send({ type: "return-lobby" })) {
+    leaveToLanding();
+  }
+}
+
+function toggleQuickChat(force) {
+  const bar = $("quickChat");
+  const btn = $("quickChatBtn");
+  if (!bar) return;
+  const next = typeof force === "boolean" ? force : bar.hidden;
+  bar.hidden = !next;
+  btn?.setAttribute("aria-expanded", next ? "true" : "false");
 }
 
 function copyInvite() {
@@ -2345,6 +2434,8 @@ function bind() {
     send(message);
   });
   $("logBtn").addEventListener("click", () => {
+    S.unreadLog = false;
+    $("logBtn")?.classList.remove("has-unread");
     $("logDrawer").hidden = false;
     renderLog();
   });
@@ -2532,6 +2623,10 @@ function bind() {
     if (event.key !== "Escape") return;
     if (!$("profileModal").hidden) closeProfile();
     if (!$("roleModal").hidden) closeRoleInfo();
+    if (!$("cardModal").hidden) closeModal();
+    if (!$("powerOverlay").hidden) closePower();
+    if (!$("logDrawer").hidden) $("logDrawer").hidden = true;
+    if ($("quickChat") && !$("quickChat").hidden) toggleQuickChat(false);
   });
   $("nightTargets").addEventListener("click", (event) => {
     const button = event.target.closest("[data-night-target]");
@@ -2568,15 +2663,27 @@ function bind() {
   });
   $("submitDawn").addEventListener("click", submitDawn);
   $("overOverlay").addEventListener("pointerdown", (event) => {
-    if (event.target.closest("#backLobby")) return;
+    if (event.target.closest("#backLobby, #leaveOverBtn")) return;
     if ($("overOverlay").dataset.stage !== "4") finishOverSequence();
   });
-  $("backLobby").addEventListener("click", leaveToLanding);
+  $("backLobby").addEventListener("click", returnToRoomLobby);
+  $("leaveOverBtn")?.addEventListener("click", leaveToLanding);
+  $("quickChatBtn")?.addEventListener("click", () => toggleQuickChat());
+  $("quickChat")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-quick-chat]");
+    if (!chip) return;
+    const text = chip.dataset.quickChat?.trim();
+    if (!text) return;
+    if (send({ type: "chat", text })) toggleQuickChat(false);
+  });
   $("chatBar").addEventListener("submit", (event) => event.preventDefault());
   $("chatSend").addEventListener("click", () => {
     const text = $("chatInput").value.trim();
     if (!text) return;
-    if (send({ type: "chat", text })) $("chatInput").value = "";
+    if (send({ type: "chat", text })) {
+      $("chatInput").value = "";
+      toggleQuickChat(false);
+    }
   });
   $("chatInput").addEventListener("keydown", (event) => {
     if (event.key === "Enter") { event.preventDefault(); $("chatSend").click(); }
