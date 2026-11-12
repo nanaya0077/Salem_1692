@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import WebSocket from "ws";
 import { CARD_CATALOG } from "../../../packages/rules/src/index.ts";
 
@@ -357,13 +358,30 @@ async function runGame(gameNo) {
 
     const durationMs = Date.now() - started;
     const logCount = Math.max(0, ...clients.map((client) => client.projection?.log?.length ?? 0));
+    const winner = host.projection?.winner ?? "unknown";
+    const reason = host.projection?.winnerReason ?? "";
+
+    // 终局后原房返回大厅：保留全部座位与连接，房主直接 ready，其余真人重置为未准备。
+    host.send({ type: "return-lobby" });
+    await host.waitFor(
+      "终局返回大厅",
+      () => clients.every((c) => c.room?.phase === "lobby" && c.room?.seats?.length === PLAYER_COUNT),
+      5000,
+    );
+    assert.equal(host.room.seats.find((s) => s.id === host.seatId)?.ready, true, "返回大厅后房主默认已准备");
+    assert.equal(
+      host.room.seats.filter((s) => s.id !== host.seatId && !s.bot).every((s) => s.ready === false),
+      true,
+      "返回大厅后其余真人重置为未准备",
+    );
+
     return {
       ok: true,
       gameNo,
       code,
       durationMs,
-      winner: host.projection?.winner ?? "unknown",
-      reason: host.projection?.winnerReason ?? "",
+      winner,
+      reason,
       logCount,
       conspiracySeats: clients.filter((client) => (client.conspiracySightings ?? 0) > 0).length,
       conspiracyLeak: clients.find((client) => client.conspiracyLeak)?.conspiracyLeak ?? null,

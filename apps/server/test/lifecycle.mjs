@@ -90,6 +90,26 @@ for (const c of [host, abigail, john, mary]) {
 await waitFor("action", () => clients.slice(0, 4).every((c) => c.projection?.phase === "action"), 10000);
 console.log("game started; current", host.projection.currentPlayerId);
 
+// 全桌可见回合截止时间：非当前回合玩家也能在 room.turnDeadline 读到同一时间戳。
+for (const c of [host, abigail, john, mary]) {
+  assert.equal(typeof c.room?.turnDeadline, "number", "公开房间视图应带当前回合 turnDeadline");
+  assert.equal(c.room.turnDeadline, host.room.turnDeadline, "所有座位应看到相同的 turnDeadline");
+}
+
+// 规则层拒单应带可读中文 message，同时保留英文 reason 码。
+const activeActor = [host, abigail, john, mary].find((c) => c.seatId === host.projection.currentPlayerId);
+activeActor.send({ type: "action", commandId: "early-end", action: { kind: "end" } });
+await waitFor("must-draw-or-play error", () => activeActor.errors.some((e) => e.reason === "must-draw-or-play"), 3000);
+const earlyEndErr = activeActor.errors.find((e) => e.reason === "must-draw-or-play");
+assert.equal(earlyEndErr.message, "请先打出一张牌，或抽两张牌");
+activeActor.errors = [];
+
+// 对局未结束时发送 return-lobby 应被拒绝（game-not-over）。
+activeActor.send({ type: "return-lobby" });
+await waitFor("game-not-over error", () => activeActor.errors.some((e) => e.reason === "game-not-over"), 3000);
+assert.equal(activeActor.errors.find((e) => e.reason === "game-not-over").message, "对局尚未结束");
+activeActor.errors = [];
+
 const marySeat = mary.seatId;
 const maryToken = mary.token;
 mary.close();

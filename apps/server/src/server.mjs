@@ -163,6 +163,7 @@ function publicRoom(room) {
     })),
     config: room.config,
     offline: Boolean(room.offline),
+    turnDeadline: room.phase === "playing" && room.game?.phase === "action" && !room.offline ? room.turnDeadline ?? null : null,
     conspiracyDeadline: room.game?.phase === "conspiracy" ? room.conspiracyDeadline ?? null : null,
     defaults: room.seats.length >= 4 ? defaultConfigFor(room.seats.length) : defaultConfigFor(4),
     minPlayers: 4,
@@ -178,6 +179,72 @@ function send(ws, message) {
   } catch (error) {
     log("send failed", error.message);
   }
+}
+
+const REASON_MESSAGES = Object.freeze({
+  "not-deal-phase": "当前不是发牌阶段",
+  "unknown-player": "找不到该玩家",
+  "role-already-chosen": "角色已选定，不能更改",
+  "role-not-offered": "所选角色不在候选中",
+  "unknown-card": "未知卡牌",
+  "actor-not-alive": "你已出局，不能行动",
+  "player-not-alive": "你已出局，不能行动",
+  "not-action-phase": "当前不是白天行动阶段",
+  "reveal-pending": "请先等待本次揭示选完位置",
+  "not-your-turn": "还没轮到你行动",
+  "card-not-in-hand": "手里没有这张牌",
+  "black-card-resolves-on-draw": "黑卡抽到即生效，不能手动打出",
+  "target-required": "请先选择目标玩家",
+  "target-not-alive": "目标玩家已出局",
+  "cannot-target-self": "目标不能是自己",
+  "piety:red-immunity": "目标面前有「信徒」，不能对其打出红卡",
+  "curse:no-blue-card": "目标面前没有蓝卡，不能打出「诅咒」",
+  "matchmaker:duplicate": "目标面前已有「情侣」，不能重复放置",
+  "alibi:duplicate-index": "「辩护」不能重复选择同一张红卡",
+  "alibi:count": "「辩护」最多弃 3 张指控或单独 1 张证据",
+  "alibi:bad-index": "所选红卡位置无效",
+  "alibi:evidence-alone": "「证据」只能单独弃掉，不能与「指控」混选",
+  "alibi:not-red": "「辩护」只能弃掉红卡",
+  "source-required": "请先选择来源玩家",
+  "source-not-alive": "来源玩家已出局",
+  "cannot-involve-self": "来源与目标都不能是自己",
+  "source-equals-target": "目标不能与来源相同",
+  "only-two-players-left": "场上其他存活玩家不足 2 人，无法使用此卡",
+  "only-will-griggs": "只有威尔·格里格斯可以把「辩护」当「目击」打出",
+  "action-already-taken": "本回合已行动，请结束回合",
+  "must-draw-or-play": "请先打出一张牌，或抽两张牌",
+  "no-pending-reveal": "当前没有待处理的揭示",
+  "not-chooser": "本次揭示由其他玩家选择",
+  "unknown-target": "目标玩家不存在",
+  "cannot-decline": "本次揭示不能放弃",
+  "bad-trial-index": "所选身份卡位置无效",
+  "trial-not-found": "所选身份卡位置无效",
+  "trial-already-revealed": "该身份卡已经揭示，请换一张",
+  "not-conspiracy-cat": "当前不在黑猫揭示步骤",
+  "not-conspiracy-pick": "当前不在传染取牌步骤",
+  "not-conspiracy": "传染阶段已结束",
+  "not-drawer": "只有抽到传染的玩家可以选择黑猫揭示",
+  "no-cat": "场上没有可翻开的黑猫持有者",
+  "left-not-available": "左邻没有可取的未揭示身份卡",
+  "not-night": "当前不是夜晚阶段",
+  "already-confessed": "本夜已经自首过了",
+  "not-william-phipps": "你不是威廉·菲普斯",
+  "william-power-used": "威廉·菲普斯能力每局只能用一次",
+  "no-unrevealed-trial": "没有未揭示的身份卡可供自首",
+  "not-samuel": "你不是塞缪尔·帕里斯",
+  "samuel-power-used": "塞缪尔·帕里斯能力本局已用满 2 次",
+  "too-many-cards": "最多只能从弃牌堆拿 2 张牌",
+  "cannot-take-black": "不能从弃牌堆拿黑卡",
+  "card-not-in-discard": "所选卡牌不在弃牌堆中",
+  "not-tituba": "你不是蒂图巴",
+  "tituba-power-used": "蒂图巴能力每局只能用一次",
+  "order-must-cover-deck": "牌堆重排顺序无效",
+  "order-not-permutation": "牌堆重排顺序无效",
+});
+
+function reasonMessage(reason, fallback = "操作失败") {
+  if (reason && REASON_MESSAGES[reason]) return REASON_MESSAGES[reason];
+  return fallback;
 }
 
 function sendError(ws, message, reason) {
@@ -767,7 +834,9 @@ function finishIfOver(room) {
 
 function applyResult(room, result, actorSeat = null) {
   if (!result.ok) {
-    if (actorSeat !== null) sendError(seatOf(room, actorSeat)?.ws, result.reason || "操作失败", result.reason);
+    if (actorSeat !== null) {
+      sendError(seatOf(room, actorSeat)?.ws, reasonMessage(result.reason, "操作失败"), result.reason);
+    }
     return false;
   }
   room.game = result.state;
@@ -1111,7 +1180,7 @@ function chooseRoleForSeat(room, seatId, roleId) {
   if (!seat) return;
   if (!room.game || room.game.phase !== "deal") return sendError(seat.ws, "当前不是发牌相位", "not-deal-phase");
   const result = chooseRole(room.game, seatId, roleId);
-  if (!result.ok) return sendError(seat.ws, result.reason || "选角失败", result.reason);
+  if (!result.ok) return sendError(seat.ws, reasonMessage(result.reason, "选角失败"), result.reason);
   room.game = result.state;
   if (result.events?.length) broadcast(room, { type: "events", events: result.events });
   if (!maybeAdvanceDeal(room)) sync(room);
@@ -1248,6 +1317,37 @@ function finalizeNight(room, timedOut = false) {
   log("night resolved", room.code, { targetId, hammerTargetId, confessions, silentConfessions, timedOut });
 }
 
+function returnToLobby(room, seatId) {
+  const seat = seatOf(room, seatId);
+  if (!seat) return;
+  if (room.phase === "lobby") return sync(room);
+  if (room.phase !== "over") return sendError(seat.ws, "对局尚未结束", "game-not-over");
+  for (const timer of room.autoTimers?.values?.() ?? []) clearTimeout(timer);
+  room.autoTimers?.clear?.();
+  clearTimeout(room.botTimer);
+  room.botTimer = null;
+  room.seats = room.seats.filter((s) => s.connected || s.bot);
+  const humans = room.seats.filter((s) => !s.bot);
+  if (humans.length === 0) {
+    cleanupRoom(room);
+    return;
+  }
+  if (!humans.some((s) => s.id === room.hostSeat)) {
+    room.hostSeat = (humans.find((s) => s.connected) ?? humans[0]).id;
+  }
+  room.game = null;
+  room.finishedAt = null;
+  room.seenCommands.clear();
+  setPhase(room, "lobby");
+  for (const s of room.seats) {
+    s.auto = false;
+    s.disconnectedAt = null;
+    s.ready = Boolean(s.bot || s.id === room.hostSeat);
+  }
+  sync(room, true);
+  log("room returned to lobby", room.code, "by seat", seatId);
+}
+
 function handleAction(room, seatId, action, commandId) {
   if (!room.game) return;
   if (commandId) {
@@ -1277,7 +1377,7 @@ function handleAction(room, seatId, action, commandId) {
     const result = phase.step === "cat"
       ? submitCatReveal(room.game, seatId, slot)
       : submitConspiracyPick(room.game, seatId, slot);
-    if (!result.ok) return sendError(seat.ws, result.reason || "选择无效", result.reason);
+    if (!result.ok) return sendError(seat.ws, reasonMessage(result.reason, "选择无效"), result.reason);
     applyResult(room, result, seatId);
     if (room.game?.phase === "conspiracy" && allConspiracyPicksSubmitted(room.game)) settleConspiracyNow(room);
     return;
@@ -1359,6 +1459,7 @@ function handleMessage(ws, raw) {
   }
   if (type === "add-bot") return addBot(room, seat.id);
   if (type === "start") return startGameFromLobby(room, seat.id);
+  if (type === "return-lobby") return returnToLobby(room, seat.id);
   if (type === "action") return handleAction(room, seat.id, message.action, message.commandId);
   if (type === "chat") {
     const text = String(message.text ?? "").slice(0, 200).trim();
