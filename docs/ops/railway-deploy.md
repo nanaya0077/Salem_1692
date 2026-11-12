@@ -16,7 +16,7 @@
 | 服务 | `salem-online` / `bb45b318-2ee6-4448-9063-fd6f36e8d47c` |
 | 环境 | `production` / `2dcec8b2-89bb-4258-a198-46f12a54f21a` |
 | 构建 | `builder: DOCKERFILE`、`dockerfilePath: /Dockerfile` |
-| 构建 commit | 线上现役 `9ff599f`（挂起揭示抽屉线收口，部署 `59b1e5d3-…`，2026-11-08）；此前为 `122dd10`（`5975c6f7-…`）；同一环境里还留着 `9c5ab94`（`136e2e77-…`）、`644d661`（`2540b2aa-…`）、`7f24a3e`（`f2f9eef0-…`）、`33b9e5e`（`4e2cfb93-…`）、`49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）等可回滚部署 |
+| 构建 commit | 线上现役 `8d62ab0`（探索地图 #70 前端缺陷清零与核心 UX 打磨收口，部署 `353af0a0-…`，2026-11-12）；此前为 `9ff599f`（挂起揭示抽屉线收口，部署 `59b1e5d3-…`，2026-11-08）、`122dd10`（`5975c6f7-…`）；同一环境里还留着 `9c5ab94`（`136e2e77-…`）、`644d661`（`2540b2aa-…`）、`7f24a3e`（`f2f9eef0-…`）、`33b9e5e`（`4e2cfb93-…`）、`49057d3`（`97f2772a-…`）、`e720751`（`e68d9de2-…`）、`3c751ae`（`cd594cc1-…`）与 `4686b6d`（`c0cbd48c-…`）等可回滚部署 |
 | 副本 | `numReplicas: 1` |
 | 区域 | `multiRegionConfig: { asia-southeast1-eqsg3a: { numReplicas: 1 } }`（Singapore 单区） |
 | 健康检查 | `healthcheckPath: /health`，`healthcheckTimeout: 300` 秒 |
@@ -161,6 +161,15 @@ after  restart /api/rooms/UM5TA5 -> 404 ；/health {"ok":true,"rooms":0,"uptime"
 - 验证：`/health` 返回 `{"ok":true,"rooms":0,"uptime":10.21}`；`deploy-smoke.mjs` **9/9 通过**（建房 `29CKBT`、`wss://` 握手 101、不存在房码 404）。
 - 真浏览器（390×844，线上）：落地页 → 建房 `MPSD64`（在座 1/12、房主、已准备，开局配置面板「女巫数 1 / 每人身份卡 5」正常）；同页 DOM 探针 `#revealDrawer` 1 个、`#revealVeil` 1 个（class `reveal-veil`）、顶部旧 `#revealBar` **0 个**、抽屉 `hidden: true`——顶栏已被抽屉取代、压暗层已随壳上线。
 - 说明：本条证据的文档提交发生在部署之后，纯文档改动、不会再触发部署；线上镜像对应 `9ff599f`，与本文其余证据的「构建 commit」一致。
+
+**证据位 E10（发布 `8d62ab0`：探索地图 #70 前端缺陷清零与核心 UX 打磨）· 已回填 2026-11-12**：
+- 发布对象 `main` @ `8d62ab05d3549f18df4b136fa0a833f5d76e79bc`（#70 的六张子票 #76 / #72 / #74 / #73 / #75 / #71 全部收口后的提交）；Auto Deploy 仍关闭，走面板会话直调 `serviceInstanceDeployV2`。
+- 前置：本机 `git push` 撞上一条失效的全局代理（`http.proxy=http://127.0.0.1:7897` 已无监听，报 `Failed to connect to github.com:443 over proxy`）。绕过方式是临时置空，不删配置：`git -c http.proxy= -c https.proxy= push origin main` → `20ff52f..8d62ab0  main -> main`。`curl` 侧同理用 `--noproxy "*"`。
+- 调用 `serviceInstanceDeployV2(environmentId: "2dcec8b2-89bb-4258-a198-46f12a54f21a", serviceId: "bb45b318-2ee6-4448-9063-fd6f36e8d47c", commitSha: "8d62ab05d3549f18df4b136fa0a833f5d76e79bc")` → 部署 `353af0a0-6c4c-4709-b061-f6c35b156be8`；`createdAt 2026-11-12T07:33:55.672Z` → `updatedAt 2026-11-12T07:34:52.142Z`（约 57 秒）`SUCCESS`；`meta.commitHash 8d62ab05d354…`、`imageDigest sha256:0013fddb2ef7…`、`commitAuthor nanaya0077`、`builder DOCKERFILE`、`dockerfilePath /Dockerfile`、`healthcheckPath /health`、`healthcheckTimeout 300`、`numReplicas 1`、`multiRegionConfig asia-southeast1-eqsg3a` 全部与「现状」表一致。上一版 `59b1e5d3-…`（`9ff599f`）于 `07:35:05Z` 转 `REMOVED`，即被本次顶下、仍留在历史里可回滚。
+- 版本探针（发布前 → 发布后）：`/sw.js` **`salem-v25` → `salem-v26`**；`/app.js` 含 `returnToRoomLobby` / `toggleQuickChat` / `myEffectiveRole` / `has-unread` 等新标记共 **20 处**；首页含 `id="quickChat"` / `id="leaveOverBtn"` / `data-quick-chat` 共 **8 处**（发布前这些均为 0）。三项一起证明线上跑的就是 #70 的代码，不是缓存里的旧前端。
+- 验证：`GET /health` 返回 `{"ok":true,"rooms":0,"uptime":108.75}` 与 4 秒后 `112.92`（同进程、稳定递增）；`BASE=https://salem-online-production.up.railway.app node apps/server/test/deploy-smoke.mjs` **9/9 通过**（首页 17424 bytes、建房 `2WVXRU`、`/api/rooms` 可解析、`wss://` 握手 101、不存在房码 404）。
+- 发布时机：发布前基线 `{"ok":true,"rooms":0,"uptime":322508}`，线上**没有进行中的对局**，这次发布没有打断任何房间。
+- 一条操作教训：`ego-browser nodejs <<'EOF'` 的 heredoc 形式在本会话里被中断过一次，但**调用其实已经发出去了**（部署确实建了）。重试前先查线上状态与部署列表，别重复触发——重复部署会让正在进房的人多掉一次线。
 
 ## 看日志与排障
 
