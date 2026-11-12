@@ -11,6 +11,7 @@ export const PHASE_LABELS = Object.freeze({
   dawn: "黎明",
   action: "白天",
   playing: "白天",
+  conspiracy: "传染",
   night: "夜晚",
   gameOver: "结束",
   over: "结束",

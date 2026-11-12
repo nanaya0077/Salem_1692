@@ -9,6 +9,7 @@ const trial = (revealed = false) => ({ id: "witch-0", kind: revealed ? "witch" :
 test("阶段标签认发牌相位，未知相位原样回落", () => {
   assert.equal(phaseLabel("deal"), "发牌");
   assert.equal(phaseLabel("action"), "白天");
+  assert.equal(phaseLabel("conspiracy"), "传染");
   assert.equal(phaseLabel("night"), "夜晚");
   assert.equal(phaseLabel("mystery"), "mystery");
 });
