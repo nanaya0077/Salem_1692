@@ -18,7 +18,19 @@ import {
   squareCropRect,
 } from "./avatar-normalize.js";
 import { cleanName, createProfileStore, initialOf } from "./profile-store.js";
-import { seatRoleView, trialLabel, trialFaceCardId, trialTone, TRIAL_BACK_IMAGE } from "./table-view.js";
+import {
+  TRIAL_BACK_IMAGE,
+  canPlayHandCard,
+  copiedRoleNote,
+  deathCauseLabel,
+  effectiveRoleOf,
+  errorReasonLabel,
+  seatRoleView,
+  seatTargetState,
+  trialFaceCardId,
+  trialLabel,
+  trialTone,
+} from "./table-view.js";
 import { phaseLabel, dealProgress, dealCountText, canEnterDawn, dealSeatStatus, ackSummary } from "./deal-view.js";
 import { slotView, canDecline, revealWaitText, actionsLocked, revealLogText, revealBannerText, revealHeading, revealWaitModel, revealSubmitLabel, toggleRevealPick, canSubmitReveal } from "./reveal-view.js";
 import {
@@ -193,6 +205,8 @@ function seatMetaText(seat, seatId) {
   const parts = [];
   if (seatId === S.seatId) parts.push("你");
   parts.push(seat.alive === false ? "已死亡" : "存活");
+  const copyNote = copiedRoleNote(S.projection?.seats, seatId, roleCardName);
+  if (copyNote) parts.push(copyNote);
   const accusations = Array.isArray(seat.accusations) ? seat.accusations.length : (seat.accusations ?? 0);
   if (accusations) parts.push("指控 " + accusations + " 点");
   const trials = seat.trials ?? [];
@@ -476,7 +490,7 @@ function handle(msg) {
       }
       // 玩家手输房码撞上房间不存在：保持落地页原有提示，不进终态。
       if (outcome === "join-failed") resetRoomState();
-      toast(msg.message || "操作失败");
+      toast(errorReasonLabel(msg.reason, msg.message));
       break;
     }
     case "pong":
@@ -573,8 +587,17 @@ function miniCards(player) {
   return parts.join("");
 }
 
+function myEffectiveRole() {
+  return effectiveRoleOf(S.projection?.seats, S.seatId) || S.projection?.self?.role || "none";
+}
+
+function seatTargetInfo(id) {
+  if (!S.pending || !S.projection) return { selectable: false, isSource: false, reason: null, message: null };
+  return seatTargetState(S.projection, S.seatId, S.pending, card(S.pending.cardId), id);
+}
+
 function selectableSeat(id) {
-  return Boolean(S.pending) && !isSelf(id) && S.projection?.seats?.find((p) => p.id === id)?.alive;
+  return seatTargetInfo(id).selectable;
 }
 
 /** 自己那排身份卡：横向卡片条；未揭示只给牌背，揭示后给牌面与和座位点阵同色的角标。 */
@@ -788,9 +811,11 @@ function renderGame() {
   const locked = revealLocked() || p.phase === "conspiracy";
   const opponents = p.seats.filter((s) => s.id !== S.seatId);
   $("opponents").innerHTML = opponents.map((player) => {
+    const targetInfo = seatTargetInfo(player.id);
     const classes = ["seat-card"];
     if (player.alive === false) classes.push("dead");
-    if (selectableSeat(player.id)) classes.push("selectable");
+    if (targetInfo.selectable) classes.push("selectable");
+    if (targetInfo.isSource) classes.push("source-picked");
     if (p.currentPlayerId === player.id) classes.push("me");
     const role = seatRoleView(player, roleCardName);
     const roleText = p.phase === "deal" ? dealSeatStatus(player, roleCardName) : role.compact;
@@ -804,11 +829,15 @@ function renderGame() {
       "</button>";
   }).join("");
 
+  const copyNote = copiedRoleNote(p.seats, S.seatId, roleCardName);
+  const selfMini = miniCards(my);
   $("selfPanel").innerHTML =
     avatarChip(S.seatId, seatName(S.seatId)) +
     '<div class="self-main"><div class="self-name">' + esc(seatName(S.seatId)) + " · 你</div>" +
-    '<div class="self-role">' + esc(roleName(my.role)) + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div>" +
-    selfAbilityLine(my.role) + "</div>" +
+    '<div class="self-role">' + esc(roleName(my.role)) + (copyNote ? "（" + esc(copyNote) + "）" : "") + (my.alive ? "" : " · 已死亡") + " · 指控 " + (my.accusations?.length ?? 0) + " 点</div>" +
+    selfAbilityLine(my.role) +
+    (selfMini ? '<div class="mini-cards">' + selfMini + "</div>" : "") +
+    "</div>" +
     '<div class="self-trials trial-strip">' + trialStrip(my.trials, S.seatId) + "</div>";
 
   renderHand(my.hand ?? [], locked);
@@ -840,11 +869,12 @@ function renderGame() {
       $("actionBar").innerHTML = '<button class="btn primary" data-act="end">结束回合</button>';
     } else {
       const extra = [];
-      if (my.role === "samuel-parris" && (my.used?.samuel ?? 0) < 2 &&
+      const effRole = myEffectiveRole();
+      if (effRole === "samuel-parris" && (my.used?.samuel ?? 0) < 2 &&
           (p.discard ?? []).some((id) => card(id).color !== "black")) {
         extra.push('<button class="btn gold" data-act="samuel">萨缪尔：从弃牌堆拿牌</button>');
       }
-      if (my.role === "tituba" && !my.used?.tituba && (p.deckOrder?.length ?? 0) > 1) {
+      if (effRole === "tituba" && !my.used?.tituba && (p.deckOrder?.length ?? 0) > 1) {
         extra.push('<button class="btn gold" data-act="tituba">蒂图巴：重排牌堆</button>');
       }
       $("actionBar").innerHTML = '<button class="btn gold" data-act="draw">抽 2 张并结束</button>' + extra.join("");
@@ -988,6 +1018,7 @@ function setRevealStage(open, targetId = null) {
     const on = open === true && targetId !== null && Number(el.dataset.seat) === targetId;
     el.classList.toggle("reveal-target", on);
   }
+  $("selfPanel")?.classList.toggle("reveal-target", open === true && targetId !== null && targetId === S.seatId);
 }
 /** 自动代翻后抽屉停留多久：动效三档只影响过渡，这段停留要够读完一句话。 */
 const REVEAL_AFTERGLOW_TEXT = "超时或托管，自动取了第一个位置。";
@@ -1058,7 +1089,7 @@ function renderRevealDrawer() {
       submitDisabled: true,
     });
     setDrawerOpen(bar, true);
-    setRevealStage(true, null);
+    setRevealStage(true, S.revealWait?.targetId ?? null);
     updateRevealClock();
     return;
   }
@@ -1258,11 +1289,20 @@ function playConspiracySwap() {
   }, curl + fly + drop + 80);
 }
 
+function syncSeatTargetClasses() {
+  for (const el of document.querySelectorAll("#opponents [data-seat]")) {
+    const info = seatTargetInfo(Number(el.dataset.seat));
+    el.classList.toggle("selectable", info.selectable);
+    el.classList.toggle("source-picked", info.isSource);
+  }
+}
+
 function renderTargetBanner() {
   const banner = $("targetBanner");
   // 传染阶段不该还有出牌的待选目标：这时候留着来源/目标提示只会误导。
   if (!S.pending || S.projection?.phase === "conspiracy") {
     banner.hidden = true;
+    syncSeatTargetClasses();
     return;
   }
   const c = card(S.pending.cardId);
@@ -1270,6 +1310,7 @@ function renderTargetBanner() {
   if (S.pending.stage === "source") $("targetText").textContent = "「" + c.name + "」：先选来源玩家";
   else if (S.pending.sourceId != null) $("targetText").textContent = "来源 " + seatName(S.pending.sourceId) + "，再选目标";
   else $("targetText").textContent = "「" + c.name + "」：选择目标玩家";
+  syncSeatTargetClasses();
 }
 
 function renderLog() {
@@ -1304,19 +1345,19 @@ function formatEvent(e) {
     case "accusationAdded": return n(e.targetId) + " 面前 +" + e.points + " 点（" + esc(card(e.cardId).name) + "），共 " + e.total + " 点。";
     case "accusationsDiscarded": return n(e.playerId) + " 弃掉 " + e.count + " 张指控。";
     case "trialRevealed": return esc(revealLogText(e, { nameOf: seatName, label: trialLabel }));
-    case "playerDied": return '<span class="red">' + n(e.playerId) + " 死亡（" + esc(e.cause) + "）。</span>";
+    case "playerDied": return '<span class="red">' + n(e.playerId) + " 死亡（" + esc(deathCauseLabel(e.cause)) + "）。</span>";
     case "handDiscarded": return n(e.playerId) + " 弃掉 " + e.count + " 张手牌。";
     case "handTransferred": return n(e.fromId) + " 的 " + e.count + " 张手牌交给 " + n(e.toId) + "。";
     case "blueAttached": return n(e.playerId) + " 面前放置 " + cn(e.cardId) + "。";
     case "blueDiscarded": return n(e.playerId) + " 弃掉蓝卡 " + cn(e.cardId) + "。";
     case "frontMoved": return n(e.fromId) + " 面前所有牌移到 " + n(e.toId) + "（红 " + e.red + " / 蓝 " + e.blue + " / 绿 " + e.green + "）。";
     case "matchmakerBroke": return '<span class="red">情侣连锁：' + e.playerIds.map(n).join("、") + " 同死。</span>";
-    case "powerUsed": return n(e.playerId) + " 使用能力：" + esc(e.power) + "。";
+    case "powerUsed": return n(e.playerId) + " 使用能力：" + esc(roleName(e.power)) + "。";
     case "conspiracyStarted": return n(e.drawerId) + " 抽到传染，全体换牌。";
     case "conspiracySwap": return n(e.fromId) + " 从左邻 " + n(e.toId) + " 取走一张身份卡。";
     case "nightStarted": return '<span class="gold">夜晚降临。</span>';
     case "confession": return n(e.playerId) + " 自首" + (e.revealed ? "，翻开一张身份卡。" : "。");
-    case "nightResolved": return "夜晚结束：" + n(e.targetId) + (e.saved ? " 被救下" : '<span class="red"> 被杀</span>') + "（" + esc(e.cause) + "）。";
+    case "nightResolved": return "夜晚结束：" + n(e.targetId) + (e.saved ? " 被救下" : '<span class="red"> 被杀</span>') + "（" + esc(deathCauseLabel(e.cause)) + "）。";
     case "winner": return '<span class="gold">对局结束：' + (e.winner === "town" ? "平民胜利" : e.winner === "witches" ? "女巫胜利" : "结束") + " —— " + esc(e.reason) + "。</span>";
     case "notice": return esc(e.text);
     default: return esc(e.type);
@@ -1448,10 +1489,10 @@ function deathEntries(events) {
   const entries = new Map();
   for (const event of events) {
     if (event.type === "playerDied" && event.playerId != null) {
-      entries.set(Number(event.playerId), event.cause ? String(event.cause) : "死亡");
+      entries.set(Number(event.playerId), deathCauseLabel(event.cause));
     }
     if (event.type === "matchmakerBroke" && Array.isArray(event.playerIds)) {
-      for (const id of event.playerIds) entries.set(Number(id), "情侣连锁");
+      for (const id of event.playerIds) entries.set(Number(id), deathCauseLabel("matchmaker"));
     }
   }
   return [...entries].map(([id, cause]) => ({ id, cause }));
@@ -1723,11 +1764,19 @@ function openCardModal(cardId) {
   $("detailKicker").textContent = [c.typeLabel, c.points ? c.points + " 点" : ""].filter(Boolean).join(" · ");
   $("detailTitle").textContent = c.name;
   $("detailText").textContent = c.text || "（无文字）";
-  const mine = myTurn() && S.projection?.self?.hand?.includes(cardId);
-  $("playCardBtn").disabled = !mine;
-  $("playWitnessBtn").hidden = !(mine && cardId === "alibi" && S.projection?.self?.role === "will-griggs");
-  $("playWitnessBtn").disabled = !mine;
-  const canAbigail = mine && S.projection?.self?.role === "abigail-williams" && (S.projection?.self?.accusations?.length ?? 0) > 0;
+  const inHand = Boolean(S.projection?.self?.hand?.includes(cardId));
+  const effRole = myEffectiveRole();
+  const playCheck = canPlayHandCard(S.projection, S.seatId, cardId, c, { revealLocked: revealLocked() });
+  $("playCardBtn").disabled = !playCheck.ok;
+  $("playCardBtn").title = playCheck.ok ? "" : (playCheck.message ?? "");
+  const showWitness = myTurn() && inHand && cardId === "alibi" && effRole === "will-griggs";
+  const witnessCheck = showWitness
+    ? canPlayHandCard(S.projection, S.seatId, cardId, c, { asWitness: true, revealLocked: revealLocked() })
+    : { ok: false, message: "" };
+  $("playWitnessBtn").hidden = !showWitness;
+  $("playWitnessBtn").disabled = !witnessCheck.ok;
+  $("playWitnessBtn").title = witnessCheck.ok ? "" : (witnessCheck.message ?? "");
+  const canAbigail = playCheck.ok && effRole === "abigail-williams" && (S.projection?.self?.accusations?.length ?? 0) > 0;
   $("playAbigailBtn").hidden = !canAbigail;
   $("playAbigailBtn").disabled = !canAbigail;
   $("cardModal").hidden = false;
@@ -1991,9 +2040,12 @@ async function onProfileFileChange(event) {
 
 
 function beginPlay(cardId, asWitness = false, useAbigail = false) {
-  if (!myTurn()) { toast("还没轮到你"); return; }
-  if (revealLocked()) { toast("先等这次揭示选完位置"); return; }
   const c = card(cardId);
+  const check = canPlayHandCard(S.projection, S.seatId, cardId, c, { asWitness, revealLocked: revealLocked() });
+  if (!check.ok) {
+    toast(check.message || "当前不能打出这张牌");
+    return;
+  }
   if (c.target === "two") {
     S.pending = { cardId, asWitness, useAbigail, stage: "source" };
     closeModal();
@@ -2026,16 +2078,17 @@ function onSeatClick(id) {
     return;
   }
   if (revealLocked()) return;
-  const c = card(S.pending.cardId);
+  const check = seatTargetInfo(id);
+  if (!check.selectable) {
+    if (check.message) toast(check.message);
+    return;
+  }
   if (S.pending.stage === "source") {
-    if (id === S.seatId) { toast("来源不能是自己"); return; }
     S.pending.sourceId = id;
     S.pending.stage = "target";
     renderTargetBanner();
     return;
   }
-  if (id === S.seatId) { toast("目标不能是自己"); return; }
-  if (S.pending.sourceId === id) { toast("目标不能与来源相同"); return; }
   if (S.pending.cardId === "curse") {
     const target = S.projection?.seats?.find((seat) => seat.id === id);
     const blue = target?.blue ?? [];

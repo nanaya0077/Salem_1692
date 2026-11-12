@@ -93,3 +93,24 @@ test("角色卡浮层只读：有牌面、有状态行、能关掉，且不发�
     "关闭按钮要接上 closeRoleInfo",
   );
 });
+
+test("玛莎·科里复制能力、自身面板蓝绿卡与揭示目标金边、中文日志与预校验均已接入 app.js", () => {
+  const renderGameBody = bodyOf(app, "function renderGame() ");
+  assert.ok(renderGameBody.includes("myEffectiveRole()"), "回合行动栏按有效角色判断塞缪尔/蒂图巴");
+  assert.ok(renderGameBody.includes("copiedRoleNote("), "自身面板显示玛莎当前复制的角色说明");
+  assert.ok(renderGameBody.includes("const selfMini = miniCards(my)"), "自身面板展示自己面前的蓝卡与绿卡");
+
+  const cardModalBody = bodyOf(app, "function openCardModal(cardId) ");
+  assert.ok(cardModalBody.includes("myEffectiveRole()"), "卡牌弹窗按有效角色判断威尔与阿比盖尔");
+  assert.ok(cardModalBody.includes("canPlayHandCard("), "卡牌弹窗用 canPlayHandCard 预校验是否可打出");
+
+  const revealStageBody = bodyOf(app, "function setRevealStage(open, targetId = null) ");
+  assert.ok(revealStageBody.includes('$("selfPanel")?.classList.toggle("reveal-target"'), "自己作为揭示目标时也点亮金边");
+
+  const formatBody = bodyOf(app, "function formatEvent(e) ");
+  assert.ok(formatBody.includes("deathCauseLabel(e.cause)"), "事件日志死因走中文标签");
+  assert.ok(formatBody.includes("roleName(e.power)"), "能力发动日志显示角色中文名");
+
+  const seatClickBody = bodyOf(app, "function onSeatClick(id) ");
+  assert.ok(seatClickBody.includes("seatTargetInfo(id)"), "点选座位走 seatTargetInfo 预校验并给出具体中文原因");
+});
