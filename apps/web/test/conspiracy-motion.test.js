@@ -103,6 +103,8 @@ test("样式表给出三拍与三档降级", () => {
   assert.match(cssSource, /\.trial-card\.conspiracy-peek \.trial-inner/);
   assert.match(cssSource, /@keyframes conspiracy-peek/);
   assert.match(cssSource, /@media \(prefers-reduced-motion: reduce\)[\s\S]*conspiracy-veil/);
+  assert.match(cssSource, /\[data-motion="reduced"\][\s\S]{0,360}conspiracy/);
+  assert.match(cssSource, /\[data-motion="off"\][\s\S]{0,360}\.conspiracy-swap \{ display: none; \}/);
   assert.match(cssSource, /html\[data-level="reduced"\][\s\S]{0,240}conspiracy/);
   assert.match(cssSource, /html\[data-level="off"\][\s\S]{0,240}\.conspiracy-swap \{ display: none; \}/);
 });

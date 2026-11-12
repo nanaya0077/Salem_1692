@@ -119,6 +119,8 @@ test("压暗与目标描边是自己的层，不复用传染那套 veil", () => 
   assert.ok(html.includes('id="revealVeil"'), "index.html 要有自己的压暗层");
   assert.ok(/\.reveal-veil\s*\{/.test(css), "压暗层要有着色与 backdrop-filter");
   assert.match(css, /backdrop-filter: brightness\(\.6\) saturate\(\.8\)/, "#65 定稿的压暗值");
+  assert.match(css, /\[data-motion="reduced"\]\s*\.reveal-veil/, "挂起揭示压暗层对齐 dataset.motion reduced");
+  assert.match(css, /\[data-motion="off"\]\s*\.reveal-veil/, "挂起揭示压暗层对齐 dataset.motion off");
   assert.ok(/\.reveal-target\s*\{/.test(css), "目标座位要有金色描边类");
   const body = bodyOf(app, "function setRevealStage(");
   assert.match(body, /revealVeil/, "压暗层由 setRevealStage 开关");
@@ -163,4 +165,15 @@ test("交出去之后不再教人怎么选：副标题与按钮一起换掉", ()
   assert.match(drawer, /waitText: "已提交，等待结算"/, "等待层与副标题同一句");
   assert.match(drawer, /cardsHidden: submitted/, "卡片同时收起");
   assert.match(drawer, /declineVisible: !submitted && canDecline\(view\)/, "提交后不再给「放弃」");
+});
+
+test("390px 窄屏保留牌堆与弃牌堆统计，且具备来源高亮、快捷语、未读红点与终局双按钮样式", () => {
+  const css = readFileSync(join(web, "styles.css"), "utf8");
+  assert.ok(!/\.pile-stats\s*\{\s*display:\s*none/.test(css), "窄屏不应把牌堆与弃牌数直接隐藏");
+  assert.match(css, /@media \(max-width: 430px\)[\s\S]{0,240}\.pile-stats \{ display: flex;/);
+  assert.match(css, /\.seat-card\.source-picked\b/);
+  assert.match(css, /\.self-panel \.mini-cards\b/);
+  assert.match(css, /\.log-btn\.has-unread::after\b/);
+  assert.match(css, /\.quick-chat\b/);
+  assert.match(css, /\.over-actions\b/);
 });
