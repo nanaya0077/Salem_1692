@@ -691,6 +691,7 @@ input:focus { border-color: rgba(216,169,76,.62); box-shadow: 0 0 0 3px rgba(216
 /* 线下模式：建房时的勾选项，以及大厅里的状态提示。 */
 .offline-row {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
